@@ -7,7 +7,6 @@
 
 #include <Arduino.h>
 #include <WiFiClient.h>
-#include "InverterTypes.h"
 
 // UART pro RS485 (dle HW_Config.h)
 #define MODBUS_UART     Serial1
