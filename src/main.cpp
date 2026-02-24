@@ -1,6 +1,6 @@
 // =============================================================
 //  main.cpp – Solar HMI
-//  Jen setup() a loop(). Veškerá UI logika je v oddělených souborech.
+//  Jen setup() a loop(). Veskerá logika je v oddelenych souborech.
 // =============================================================
 
 #include <Arduino.h>
@@ -12,32 +12,43 @@
 #include "LGFX_ST7789V_Pico2W.h"
 #include "HW_Config.h"
 #include "Config.h"
+#include "FM24CL64.h"
 #include "PCF85063A.h"
 #include "Theme.h"
 #include "ScreenManager.h"
 #include "BootScreen.h"
 #include "LogoScreen.h"
 #include "MainScreen.h"
+#include "InverterDriver.h"
 
-#define FW_VERSION "v1.0.0"
+#include <hardware/watchdog.h>
+
+#define FW_VERSION       "v1.0.0"
 #define WIFI_STA_TIMEOUT 30000
 
 // =============================================================
-//  Globální stav
+//  Globalni stav
 // =============================================================
 const Theme*  gTheme   = &THEME_DARK;
 PCF85063A     gRTC;
+FM24CL64      gFRAM;
 volatile bool gWifiSta = false;
 volatile bool gWifiAp  = false;
 volatile bool gNtpOk   = false;
 
+// Merenic – inicializovan z gConfig (nacteneho z FRAM nebo defaults)
+// nullptr = DE/RE callback (TCP transport ho nepotrebuje)
+InverterDriver gInverter(gConfig, nullptr);
+
 // =============================================================
-//  taskHeartbeat – sekundový tik displeje + Serial
+//  taskHeartbeat – sekundovy tik displeje + Serial + watchdog
 // =============================================================
 void taskHeartbeat(void* p) {
     TickType_t xLastWake = xTaskGetTickCount();
     while (true) {
         vTaskDelayUntil(&xLastWake, pdMS_TO_TICKS(1000));
+        watchdog_update();
+
         if (ScreenManager::current() == SCREEN_MAIN) {
             MainScreen::update(gTheme, gRTC.getTime(),
                                gWifiSta, gWifiAp, gRTC.isValid());
@@ -60,17 +71,21 @@ void setup() {
     while (!Serial && millis() - sw < 3000) delay(10);
     Serial.println("\n=== Solar HMI " FW_VERSION " ===");
 
+    if (watchdog_caused_reboot()) {
+        Serial.println("[WDT] RESTART – watchdog timeout!");
+    }
+
     // Displej
     tft.init();
     tft.setRotation(1);
 
-    // --- Načti konfiguraci ---
-    // TODO: až bude FRAM: ConfigManager::loadFromFram();
+    // Nacti konfiguraci
+    // TODO: ConfigManager::loadFromFram() az bude FRAM driver v main
     ConfigManager::loadDefaults();
     gTheme = THEMES[gConfig.themeIndex];
     ConfigManager::print();
 
-    // --- BOOT SCREEN ---
+    // Boot screen
     ScreenManager::set(SCREEN_BOOT);
     BootScreen::begin(gTheme, FW_VERSION);
 
@@ -80,6 +95,13 @@ void setup() {
     Wire.begin();
     Wire.setClock(I2C_FREQ);
     BootScreen::print(gTheme, BOOT_OK, "I2C 400kHz");
+
+    // FRAM
+    if (gFRAM.begin()) {
+        BootScreen::print(gTheme, BOOT_OK, "FRAM 8KB");
+    } else {
+        BootScreen::print(gTheme, BOOT_ERR, "FRAM chyba");
+    }
 
     // RTC
     char buf[40];
@@ -112,7 +134,6 @@ void setup() {
         tzset();
         WiFi.mode(WIFI_STA);
         if (!gConfig.wifiStaDhcp) {
-            // Statická IP
             WiFi.config(
                 IPAddress(gConfig.wifiStaIp),
                 IPAddress(gConfig.wifiStaGw),
@@ -149,18 +170,26 @@ void setup() {
         BootScreen::print(gTheme, BOOT_DISABLED, "NTP  (bez WiFi)");
     }
 
-    // Heartbeat task
+    // Merenic – Modbus task na Core 1
+    // TODO: pokud invTransport == RTU, predej callback pro DE/RE pres MCP23017
+    xTaskCreate(InverterDriver::task, "Inverter", 4096, &gInverter, 3, nullptr);
+    BootScreen::print(gTheme, BOOT_OK, "Modbus task");
+
+    // Tasky
     xTaskCreate(taskHeartbeat, "HB", 1024, nullptr, 3, nullptr);
 
-    // Pauza aby byl boot čitelný
+    // Watchdog – aktivuj az po dokonceni bootu
+    watchdog_enable(8000, true);
+
+    // Pauza aby byl boot citelny
     delay(1500);
 
-    // --- LOGO SCREEN ---
+    // Logo screen
     ScreenManager::set(SCREEN_LOGO);
     LogoScreen::draw(gTheme, FW_VERSION);
     delay(2000);
 
-    // --- MAIN SCREEN ---
+    // Main screen
     ScreenManager::set(SCREEN_MAIN);
     MainScreen::begin(gTheme, FW_VERSION);
     MainScreen::update(gTheme, gRTC.getTime(),
@@ -177,7 +206,7 @@ void loop() {
     static uint32_t lastNtpResync = 0;
     uint32_t now = millis();
 
-    // WiFi STA reconnect každých 30s
+    // WiFi STA reconnect kazdych 30s
     if (gConfig.wifiStaEn && now - lastReconnect > 30000) {
         lastReconnect = now;
         if (WiFi.status() != WL_CONNECTED) {

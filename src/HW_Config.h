@@ -41,6 +41,12 @@
 #define RS485_BAUD          9600
 // DE/RE pin je na MCP23017 GPB7 (viz MCP23017 konfigurace níže)
 
+// Transportní vrstva Modbus – RTU nebo TCP
+enum InverterTransport : uint8_t {
+    TRANSPORT_RTU = 0,  // RS485 pres UART0, GPIO 0/1
+    TRANSPORT_TCP = 1,  // Modbus TCP pres WiFi
+};
+
 // ── Pulzní vstupy elektroměrů ─────────────────────────────────
 // GPIO 18–27, každý pin = jeden byt
 // Optočlen → sestupná hrana = jeden pulz = 1 Wh (1000 imp/kWh)
@@ -62,10 +68,3 @@
 // ── Systémové konstanty ───────────────────────────────────────
 #define SERIAL_BAUD         115200
 #define CORE1_STACK_SIZE    4096    // velikost zásobníku pro Core 1
-
-// ── Nastavení WiFi ───────────────────────────────────────
-//#define WIFI_SSID          "Skynet"
-//#define WIFI_PASSWORD      "uslinksysHPPV11"
-//#define NTP_SERVER         "pool.ntp.org"
-//#define NTP_TIMEZONE       "CET-1CEST,M3.5.0,M10.5.0/3"
-//#define FRAM_ADDR_RTC_CALIB  0x0200
