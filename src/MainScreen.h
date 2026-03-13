@@ -294,19 +294,17 @@ namespace MainScreen {
     // Stará signatura z main.cpp (taskHeartbeat):
     //   MainScreen::update(gTheme, gRTC.getTime(), gWifiSta, gWifiAp, gRTC.isValid())
     void update(const Theme* t, const DateTime& dt,
-                bool wifiSta, bool wifiAp, bool rtcValid) {
-        // Načti aktuální data ze SolarModel
-        SolarData d = {};
-        SolarModel::get(d);
+            bool wifiSta, bool wifiAp, bool rtcValid) {
+    SolarData d = {};
+    SolarModel::get(d);
+    uint8_t ap  = wifiAp  ? DOT_OK : DOT_OFF;
+    uint8_t sta = wifiSta ? DOT_OK : DOT_OFF;
+    uint8_t inv = d.invOnline ? DOT_OK : DOT_OFF;
 
-        uint8_t ap  = wifiAp  ? DOT_OK : DOT_OFF;
-        uint8_t sta = wifiSta ? DOT_OK : DOT_OFF;
-        uint8_t inv = d.invOnline ? DOT_OK : DOT_OFF;
-
-        Header::draw(t, dt, ap, sta, inv, false);
-        Header::drawFooter(t, d);
-        _drawLeft(t, d);
-        _drawRight(t, d);
-    }
+    Header::update(t, dt, ap, sta, inv, false);    // ← bylo Header::draw()
+    Header::updateFooter(t, d);                    // ← bylo Header::drawFooter()
+    _drawLeft(t, d);
+    _drawRight(t, d);
+}
 
 } // namespace MainScreen

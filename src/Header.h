@@ -43,6 +43,10 @@ namespace Header {
     // Blikání alarmu – interní
     static uint32_t _lastBlinkMs  = 0;
     static bool     _alarmVisible = true;
+    
+    // Cache stavu relé pro updateFooter
+    static bool _lastRelayOn[10]      = {};
+    static bool _lastRelayHeating[10] = {};
 
     // ---------------------------------------------------------
     //  Interní: nakresli/smaž alarm trojúhelník
@@ -152,17 +156,25 @@ namespace Header {
     //  Aktualizuj záhlaví – volej každou sekundu
     //  Překreslí jen části které se mění (čas, puntíky, alarm)
     // ---------------------------------------------------------
-    void update(const Theme* t, const DateTime& dt,
-                uint8_t apState, uint8_t staState, uint8_t invState,
-                bool alarm) {
-        // Čas – překresli oblast
-        tft.fillRect(8, 5, 55, 16, t->header);
-        tft.setFont(&fonts::DejaVu24);
-        tft.setTextColor(t->accent);
-        tft.setCursor(8, 2);
-        char buf[9];
-        snprintf(buf, sizeof(buf), "%02d:%02d", dt.hour, dt.minute);
-        tft.print(buf);
+void update(const Theme* t, const DateTime& dt,
+            uint8_t apState, uint8_t staState, uint8_t invState,
+            bool alarm) {
+
+    // Čas – přes sprite aby neblikalo
+    static LGFX_Sprite _sprTime(&tft);
+    static bool _sprTimeCreated = false;
+    if (!_sprTimeCreated) {
+        _sprTime.createSprite(75, HDR_H);
+        _sprTimeCreated = true;
+    }
+    _sprTime.fillScreen(t->header);
+    _sprTime.setFont(&fonts::DejaVu24);
+    _sprTime.setTextColor(t->accent);
+    _sprTime.setCursor(0, 2);
+    char buf[9];
+    snprintf(buf, sizeof(buf), "%02d:%02d", dt.hour, dt.minute);
+    _sprTime.print(buf);
+    _sprTime.pushSprite(8, 0);
 
         // Puntíky
         tft.fillCircle(100, 12, 6, _dotColor(t, apState));
@@ -187,7 +199,22 @@ namespace Header {
     //  Aktualizuj spodní lištu – volej při změně stavu relé
     // ---------------------------------------------------------
     void updateFooter(const Theme* t, const SolarData& d) {
-        drawFooter(t, d);
+    bool changed = false;
+    for (uint8_t i = 0; i < 10; i++) {
+        if (d.relayOn[i] != _lastRelayOn[i] ||
+            d.relayHeating[i] != _lastRelayHeating[i]) {
+            changed = true;
+            break;
+        }
     }
+    if (!changed) return;
+
+    for (uint8_t i = 0; i < 10; i++) {
+        _lastRelayOn[i]      = d.relayOn[i];
+        _lastRelayHeating[i] = d.relayHeating[i];
+    }
+       drawFooter(t, d);
+    }
+
 
 } // namespace Header
