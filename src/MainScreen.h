@@ -70,7 +70,8 @@ namespace MainScreen {
     // ---------------------------------------------------------
     static void _drawStatic(const Theme* t) {
         // Levý sloupec – dělící čára uprostřed
-        tft.drawFastVLine(MAIN_LEFT_W, CONTENT_Y, CONTENT_H, t->dim);
+        tft.drawFastVLine(MAIN_LEFT_W, CONTENT_Y, CONTENT_H, t->splitline);  // cyan #00e5ff
+        //tft.drawFastVLine(MAIN_LEFT_W, CONTENT_Y, CONTENT_H, t->dim);
         tft.drawFastHLine(0, MAIN_TILE2_Y, MAIN_LEFT_W, t->dim);
 
         // Barevný pruh vlevo – Výroba (žlutá)
@@ -113,6 +114,8 @@ namespace MainScreen {
     // ---------------------------------------------------------
     static void _drawLeft(const Theme* t, const SolarData& d) {
         _sprLeft.fillScreen(t->bg);
+        _sprLeft.drawFastHLine(0, MAIN_TILE_H, MAIN_LEFT_W, t->splitline);
+        //_sprLeft.drawFastHLine(0, MAIN_TILE_H + 1, MAIN_LEFT_W, t->splitline); // odkomentovat pokud je potřeba 2 pixely silná čára
         _sprLeft.setFont(&fonts::DejaVu24);
 
         char buf[16];
@@ -168,6 +171,7 @@ namespace MainScreen {
         _sprLeft.fillRect(10, bar_y, fill, 5, barColor);
 
         _sprLeft.pushSprite(0, CONTENT_Y);
+
     }
 
     // ---------------------------------------------------------
@@ -175,6 +179,8 @@ namespace MainScreen {
     // ---------------------------------------------------------
     static void _drawRight(const Theme* t, const SolarData& d) {
         _sprRight.fillScreen(t->bg);
+        _sprRight.drawFastVLine(0, 0, CONTENT_H, t->splitline);
+        //_sprRight.drawFastVLine(1, 0, CONTENT_H, t->splitline); // odkometovat pokud je potřeba 2 pixely silná čára
         _sprRight.setFont(&fonts::DejaVu24);
 
         char buf[12];
@@ -223,6 +229,7 @@ namespace MainScreen {
         }
 
         _sprRight.pushSprite(MAIN_RIGHT_X, CONTENT_Y);
+
     }
 
     // ==========================================================

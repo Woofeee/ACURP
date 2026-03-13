@@ -1,5 +1,5 @@
 // =============================================================
-//  main_ui_loop.h – UI smyčka Solar HMI (Core 0)
+//  main_ui_loop.h – UI smyčka ACU RP (Core 0)
 //
 //  Vlož do main.cpp a zavolej:
 //    uiSetup() v setup()
@@ -7,13 +7,9 @@
 //
 //  Předpoklady v main.cpp:
 //    extern LGFX tft;
-//    extern FiveWaySwitch gSwitch;
+//    FiveWaySwitch gSwitch;   – definováno v main.cpp
 //    extern PCF85063A gRTC;
 //    SolarModel::begin() voláno před startem tasků
-//
-//  Stav indikátorů záhlaví:
-//    Doplň skutečný stav WiFi AP/STA z WiFi driveru
-//    a stav invertoru z SolarData.invOnline
 // =============================================================
 #pragma once
 #include <Arduino.h>
@@ -21,6 +17,7 @@
 #include "SolarData.h"
 #include "Theme.h"
 #include "PCF85063A.h"
+#include "FiveWaySwitch.h"
 
 // Všechny screeny
 #include "MainScreen.h"
@@ -39,8 +36,7 @@ extern const Theme*       gTheme;
 extern PCF85063A          gRTC;
 extern volatile bool      gWifiSta;
 extern volatile bool      gWifiAp;
-// FiveWaySwitch gSwitch přidej do main.cpp až bude ready
-// extern FiveWaySwitch gSwitch;
+extern FiveWaySwitch      gSwitch;
 
 static SolarData    gUI_data  = {};
 static DateTime     gUI_dt    = {};
@@ -55,7 +51,6 @@ static uint8_t gDotINV = DOT_OFF;
 //  Pomocná funkce: přepni screen a volej reset() pokud existuje
 // =============================================================
 static void _doSwitch(Screen next) {
-    // Reset stavu cílového screenu
     switch (next) {
         case SCREEN_MENU:       MenuScreen::reset();       break;
         case SCREEN_HISTORY:    HistoryScreen::reset();    break;
@@ -79,39 +74,32 @@ static void _drawCurrent() {
             MainScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_MENU:
             MenuScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_HISTORY:
             HistoryScreen::loadFromFRAM();
             HistoryScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_DIAGNOSTIC:
             DiagnosticScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_SETTING:
             SettingScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_PASSWORD:
             PasswordScreen::loadFromFRAM();
             PasswordScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_UDP:
             UdPScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         default:
             break;
     }
@@ -129,37 +117,30 @@ static void _updateCurrent() {
             MainScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_MENU:
             MenuScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_HISTORY:
             HistoryScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_DIAGNOSTIC:
             DiagnosticScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_SETTING:
             SettingScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_PASSWORD:
             PasswordScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         case SCREEN_UDP:
             UdPScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
-
         default:
             break;
     }
@@ -207,33 +188,26 @@ static void _handleInput(SwButton btn) {
 
 // =============================================================
 //  Aktualizuj stav záhlaví z externích zdrojů
-//  Volej před _updateCurrent() nebo _drawCurrent()
 // =============================================================
 static void _refreshState() {
-    // Data z SolarModel (thread-safe čtení)
     SolarModel::get(gUI_data);
+    gUI_dt  = gRTC.getTime();
 
-    // Čas z RTC – PCF85063A používá getTime()
-    gUI_dt = gRTC.getTime();
-
-    // Indikátory záhlaví
     gDotSTA = gWifiSta ? DOT_OK : DOT_OFF;
     gDotAP  = gWifiAp  ? DOT_OK : DOT_OFF;
     gDotINV = gUI_data.invOnline ? DOT_OK : DOT_ERROR;
 
-    // TODO: AlarmManager
-    // gAlarm = AlarmManager::hasActive();
+    // Alarm – fault stav měniče
+    gAlarm  = (gUI_data.invStatus == 3);
 }
 
 // =============================================================
 //  uiSetup() – inicializace UI, volej v setup()
 // =============================================================
 void uiSetup() {
-    // SolarModel::begin() voláno před tímto
     PasswordScreen::loadFromFRAM();
     HistoryScreen::loadFromFRAM();
 
-    // Spusť na Main screenu
     ScreenManager::replaceTo(SCREEN_MAIN);
     _refreshState();
     _drawCurrent();
@@ -246,10 +220,7 @@ void uiSetup() {
 // =============================================================
 void uiLoop() {
     // 1. Přečti vstup ze 5-way switche
-    // TODO: odkomentovat až bude gSwitch přidán do main.cpp
-    // SwButton btn = gSwitch.read();
-    // _handleInput(btn);
-    SwButton btn = SW_NONE;  // placeholder
+    SwButton btn = gSwitch.read();
     _handleInput(btn);
 
     // 2. Pokud se změnil screen → překresli

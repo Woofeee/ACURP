@@ -20,6 +20,7 @@ struct Theme {
     uint16_t warn;    // oranžová – varování
     uint16_t err;     // červená – chyba
     uint16_t accent;  // cyan – zvýraznění, WiFi tečka
+    uint16_t splitline; // oranžová
 };
 
 // --- Téma: Dark (výchozí) ---
@@ -32,6 +33,7 @@ const Theme THEME_DARK = {
     .warn   = 0xFD20,  // oranžová
     .err    = 0xF800,  // červená
     .accent = 0x07FF,  // cyan
+    .splitline = 0xFD20 // oranžová
 };
 
 // --- Téma: Light (plánováno) ---

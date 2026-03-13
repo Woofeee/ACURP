@@ -33,7 +33,7 @@ namespace MenuScreen {
         { "Diagnostika", SCREEN_DIAGNOSTIC, true  },
         { "Nastaveni",   SCREEN_SETTING,    true  },
         { "Instalace",   SCREEN_PASSWORD,   true  },
-        { "Zpet",        SCREEN_NONE,       false },
+        //{ "Zpet",        SCREEN_NONE,       false },
     };
     static const uint8_t _itemCount = sizeof(_items) / sizeof(_items[0]);
 
@@ -89,7 +89,7 @@ namespace MenuScreen {
         // Nadpis
         tft.setFont(&fonts::Font2);
         tft.setTextColor(t->dim);
-        tft.setCursor(16, CONTENT_Y + 6);
+        tft.setCursor(16, CONTENT_Y + 4);
         tft.print("MENU");
         tft.drawFastHLine(16, CONTENT_Y + 18, 288, t->dim);
 

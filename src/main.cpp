@@ -21,6 +21,7 @@
 #include "MainScreen.h"
 #include "InverterDriver.h"
 #include "SolarData.h"
+#include "FiveWaySwitch.h"
 #include "main_ui_loop.h"
 
 #include <hardware/watchdog.h>
@@ -38,12 +39,17 @@ volatile bool gWifiSta = false;
 volatile bool gWifiAp  = false;
 volatile bool gNtpOk   = false;
 
+// 5-way switch
+FiveWaySwitch gSwitch;
+
 // Merenic – inicializovan z gConfig (nacteneho z FRAM nebo defaults)
 // nullptr = DE/RE callback (TCP transport ho nepotrebuje)
 InverterDriver gInverter(gConfig, nullptr);
 
 // =============================================================
-//  taskHeartbeat – sekundovy tik displeje + Serial + watchdog
+//  taskHeartbeat – sekundovy tik Serial + watchdog
+//  POZOR: překreslování displeje řídí uiLoop() v loop()
+//         taskHeartbeat jen aktualizuje SolarModel a watchdog
 // =============================================================
 void taskHeartbeat(void* p) {
     TickType_t xLastWake = xTaskGetTickCount();
@@ -51,15 +57,10 @@ void taskHeartbeat(void* p) {
         vTaskDelayUntil(&xLastWake, pdMS_TO_TICKS(1000));
         watchdog_update();
 
-        if (ScreenManager::current() == SCREEN_MAIN) {
-            MainScreen::update(gTheme, gRTC.getTime(),
-                               gWifiSta, gWifiAp, gRTC.isValid());
-        }
-
         // INV stav + přepis do SolarModel pro UI
         InverterData inv;
         gInverter.getData(inv);
-        SolarModel::updateFromInverter(inv);  // ← UI dostane data
+        SolarModel::updateFromInverter(inv);
 
         DateTime dt = gRTC.getTime();
         Serial.printf("[HB] %02d:%02d:%02d STA:%s AP:%s heap:%u "
@@ -134,6 +135,10 @@ void setup() {
         BootScreen::print(gTheme, BOOT_ERR, "RTC  chyba");
     }
 
+    // 5-way switch
+    gSwitch.begin();
+    BootScreen::print(gTheme, BOOT_OK, "5-way switch");
+
     // WiFi AP
     if (gConfig.wifiApEn) {
         // TODO: WiFi.softAP() s parametry z gConfig
@@ -186,7 +191,7 @@ void setup() {
 
     // Simulator test
     Serial.print("[TEST] Ping 10.0.1.28:502 ... ");
-     WiFiClient testClient;
+    WiFiClient testClient;
     if (testClient.connect("10.0.1.28", 502)) {
         Serial.println("OK – server odpovida");
         testClient.stop();
@@ -226,19 +231,19 @@ void setup() {
     LogoScreen::draw(gTheme, FW_VERSION);
     delay(2000);
 
-    // Main screen
-    ScreenManager::set(SCREEN_MAIN);
-    MainScreen::begin(gTheme, FW_VERSION);
-    MainScreen::update(gTheme, gRTC.getTime(),
-                       gWifiSta, gWifiAp, gRTC.isValid());
+    // UI setup – Main screen + první vykreslení
+    uiSetup();
 
     Serial.println("[Setup] Hotovo");
 }
 
 // =============================================================
-//  loop() – WiFi reconnect + NTP resync
+//  loop() – UI smyčka + WiFi reconnect + NTP resync
 // =============================================================
 void loop() {
+    // UI – vstup ze switche + překreslování + periodický update
+    uiLoop();
+
     static uint32_t lastReconnect = 0;
     static uint32_t lastNtpResync = 0;
     uint32_t now = millis();
@@ -276,6 +281,4 @@ void loop() {
         dt.hour=ti->tm_hour;     dt.minute=ti->tm_min;   dt.second=ti->tm_sec;
         gRTC.setTime(dt);
     }
-
-    delay(50);
 }
