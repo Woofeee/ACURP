@@ -1,0 +1,168 @@
+// =============================================================
+//  UdPScreen.h – Uvedení do Provozu (chráněno PINem)
+//
+//  Položky:
+//    Rizeni    → (future) ControlScreen
+//    Serial    → (future) SerialConfigScreen
+//    Network   → (future) NetworkConfigScreen
+//    MQTT      → (future) MqttConfigScreen
+//    Stridac   → (future) InverterConfigScreen
+//    Zpet      → SCREEN_MENU
+//
+//  Zpět je vždy viditelný jako poslední položka s tlumeným textem.
+//  LEFT → SCREEN_MENU
+// =============================================================
+#pragma once
+#include <Arduino.h>
+#include <LovyanGFX.hpp>
+#include "LGFX_ST7789V_Pico2W.h"
+#include "Theme.h"
+#include "Header.h"
+#include "ScreenManager.h"
+#include "FiveWaySwitch.h"
+#include "SolarData.h"
+#include "PCF85063A.h"
+
+namespace UdPScreen {
+
+    struct UdPItem {
+        const char* label;
+        const char* hint;       // krátký popis vpravo
+        Screen      target;     // SCREEN_NONE = "brzy k dispozici"
+        bool        available;
+    };
+
+    static const UdPItem _items[] = {
+        { "Rizeni",  "logika vystupu",  SCREEN_NONE, false },
+        { "Serial",  "Modbus, RS485",   SCREEN_NONE, false },
+        { "Network", "WiFi, IP, NTP",   SCREEN_NONE, false },
+        { "MQTT",    "broker, topic",   SCREEN_NONE, false },
+        { "Stridac", "typ, adresa",     SCREEN_NONE, false },
+        { "Zpet",    "",                SCREEN_MENU,  true  },
+    };
+    static const uint8_t _itemCount = sizeof(_items) / sizeof(_items[0]);
+
+    static uint8_t _cursor = 0;
+
+    #define UDP_ROW_H   28
+    #define UDP_START_Y (CONTENT_Y + 28)
+
+    // ---------------------------------------------------------
+    //  Nakresli jednu položku
+    // ---------------------------------------------------------
+    static void _drawItem(const Theme* t, uint8_t idx) {
+        const UdPItem& item = _items[idx];
+        int16_t y = UDP_START_Y + idx * UDP_ROW_H;
+        bool active  = (idx == _cursor);
+        bool isBack  = (strcmp(item.label, "Zpet") == 0);
+        bool avail   = item.available;
+
+        // Pozadí
+        if (active) {
+            tft.fillRect(8, y, 304, UDP_ROW_H, t->header);
+            tft.fillRect(8, y, 3,   UDP_ROW_H, t->accent);
+        } else {
+            tft.fillRect(8, y, 304, UDP_ROW_H, t->bg);
+        }
+
+        // Barva textu
+        uint16_t col;
+        if (isBack)       col = t->dim;
+        else if (!avail)  col = active ? t->dim : 0x2104; // tmavě šedá
+        else              col = active ? t->accent : t->text;
+
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(col);
+        tft.setCursor(20, y + 8);
+        tft.print(item.label);
+
+        // Hint vpravo
+        if (strlen(item.hint) > 0) {
+            tft.setTextColor(t->dim);
+            tft.setTextDatum(middle_right);
+            tft.drawString(item.hint, 310, y + 14);
+            tft.setTextDatum(top_left);
+        }
+
+        // "brzy" tag pro nedostupné
+        if (!avail && !isBack) {
+            tft.setFont(&fonts::Font2);
+            tft.setTextColor(0x2104);
+            tft.setCursor(155, y + 8);
+            tft.print("(brzy)");
+        }
+
+        // Šipka pro dostupné podmenu
+        if (avail && !isBack) {
+            tft.setTextColor(active ? t->accent : t->dim);
+            tft.setCursor(300, y + 8);
+            tft.print(">");
+        }
+    }
+
+    // ==========================================================
+    //  Veřejné rozhraní
+    // ==========================================================
+
+    void draw(const Theme* t, const DateTime& dt,
+              uint8_t apState, uint8_t staState, uint8_t invState,
+              bool alarm, const SolarData& d) {
+
+        tft.fillScreen(t->bg);
+        Header::draw(t, dt, apState, staState, invState, alarm);
+        Header::drawFooter(t, d);
+
+        // Nadpis + dělicí čára
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->accent);
+        tft.setCursor(16, CONTENT_Y + 6);
+        tft.print("INSTALACE");
+        tft.setTextColor(t->dim);
+        tft.drawFastHLine(16, CONTENT_Y + 20, 288, t->dim);
+
+        for (uint8_t i = 0; i < _itemCount; i++) {
+            _drawItem(t, i);
+        }
+    }
+
+    void update(const Theme* t, const DateTime& dt,
+                uint8_t apState, uint8_t staState, uint8_t invState,
+                bool alarm, const SolarData& d) {
+        Header::update(t, dt, apState, staState, invState, alarm);
+    }
+
+    Screen handleInput(const Theme* t, SwButton btn) {
+        switch (btn) {
+            case SW_UP:
+                if (_cursor > 0) {
+                    uint8_t prev = _cursor--;
+                    _drawItem(t, prev);
+                    _drawItem(t, _cursor);
+                }
+                return SCREEN_NONE;
+
+            case SW_DOWN:
+                if (_cursor < _itemCount - 1) {
+                    uint8_t prev = _cursor++;
+                    _drawItem(t, prev);
+                    _drawItem(t, _cursor);
+                }
+                return SCREEN_NONE;
+
+            case SW_CENTER: {
+                const UdPItem& item = _items[_cursor];
+                if (!item.available) return SCREEN_NONE;
+                return item.target;
+            }
+
+            case SW_LEFT:
+                return SCREEN_MENU;
+
+            default:
+                return SCREEN_NONE;
+        }
+    }
+
+    void reset() { _cursor = 0; }
+
+} // namespace UdPScreen

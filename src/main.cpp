@@ -20,10 +20,12 @@
 #include "LogoScreen.h"
 #include "MainScreen.h"
 #include "InverterDriver.h"
+#include "SolarData.h"
+#include "main_ui_loop.h"
 
 #include <hardware/watchdog.h>
 
-#define FW_VERSION       "v1.0.0"
+#define FW_VERSION       "v0.0.1"
 #define WIFI_STA_TIMEOUT 30000
 
 // =============================================================
@@ -53,12 +55,24 @@ void taskHeartbeat(void* p) {
             MainScreen::update(gTheme, gRTC.getTime(),
                                gWifiSta, gWifiAp, gRTC.isValid());
         }
+
+        // INV stav + přepis do SolarModel pro UI
+        InverterData inv;
+        gInverter.getData(inv);
+        SolarModel::updateFromInverter(inv);  // ← UI dostane data
+
         DateTime dt = gRTC.getTime();
-        Serial.printf("[HB] %02d:%02d:%02d STA:%s AP:%s heap:%u\n",
+        Serial.printf("[HB] %02d:%02d:%02d STA:%s AP:%s heap:%u "
+                      "INV:%s err:%u pv:%ld grid:%ld soc:%u\n",
             dt.hour, dt.minute, dt.second,
             gWifiSta ? "OK" : "--",
             gWifiAp  ? "OK" : "--",
-            rp2040.getFreeHeap());
+            rp2040.getFreeHeap(),
+            inv.valid ? "OK" : "--",
+            inv.errorCount,
+            inv.powerPV,
+            inv.powerGrid,
+            inv.soc);
     }
 }
 
@@ -69,7 +83,7 @@ void setup() {
     Serial.begin(115200);
     uint32_t sw = millis();
     while (!Serial && millis() - sw < 3000) delay(10);
-    Serial.println("\n=== Solar HMI " FW_VERSION " ===");
+    Serial.println("\n=== ACU RP " FW_VERSION " ===");
 
     if (watchdog_caused_reboot()) {
         Serial.println("[WDT] RESTART – watchdog timeout!");
@@ -170,13 +184,36 @@ void setup() {
         BootScreen::print(gTheme, BOOT_DISABLED, "NTP  (bez WiFi)");
     }
 
-    // Merenic – Modbus task na Core 1
-    // TODO: pokud invTransport == RTU, predej callback pro DE/RE pres MCP23017
-    xTaskCreate(InverterDriver::task, "Inverter", 4096, &gInverter, 3, nullptr);
-    BootScreen::print(gTheme, BOOT_OK, "Modbus task");
+    // Simulator test
+    Serial.print("[TEST] Ping 10.0.1.28:502 ... ");
+     WiFiClient testClient;
+    if (testClient.connect("10.0.1.28", 502)) {
+        Serial.println("OK – server odpovida");
+        testClient.stop();
+    } else {
+        Serial.println("FAIL – nedostupne");
+    }
 
-    // Tasky
-    xTaskCreate(taskHeartbeat, "HB", 1024, nullptr, 3, nullptr);
+    // SolarModel – sdílená data mezi jádry
+    SolarModel::begin();
+
+    // Tasky – HB spusť PRVNÍ aby watchdog běžel před INV connect()
+    xTaskCreate(taskHeartbeat, "HB", 2048, nullptr, 3, nullptr);
+
+    // Krátká pauza – nech HB task nastartovat a zavolat watchdog_update()
+    delay(200);
+
+    // Merenic – Modbus task
+    // Stack 6144: WiFiClient + Modbus buffer + FreeRTOS overhead
+    Serial.printf("[INV] Spoustim task: %s %u.%u.%u.%u:%u slave=%u poll=%ums\n",
+        gConfig.invTransport == TRANSPORT_TCP ? "TCP" : "RTU",
+        gConfig.invIp[0], gConfig.invIp[1],
+        gConfig.invIp[2], gConfig.invIp[3],
+        gConfig.invTcpPort,
+        gConfig.invSlaveId,
+        gConfig.invPollMs);
+    xTaskCreate(InverterDriver::task, "Inverter", 6144, &gInverter, 2, nullptr);
+    BootScreen::print(gTheme, BOOT_OK, "Modbus task");
 
     // Watchdog – aktivuj az po dokonceni bootu
     watchdog_enable(8000, true);

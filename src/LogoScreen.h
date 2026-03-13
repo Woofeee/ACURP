@@ -24,7 +24,7 @@ namespace LogoScreen {
         tft.setTextDatum(middle_center);
         tft.setFont(&fonts::FreeSansBold18pt7b);
         tft.setTextColor(t->accent);
-        tft.drawString("Solar HMI", 160, 100);
+        tft.drawString("ACU RP", 160, 100);
         tft.setFont(&fonts::FreeSans9pt7b);
         tft.setTextColor(t->dim);
         tft.drawString(version, 160, 140);

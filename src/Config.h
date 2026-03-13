@@ -62,7 +62,7 @@ struct Config {
     uint8_t  invTransport    = TRANSPORT_TCP; // viz HW_Config.h
     uint8_t  invSlaveId      = 255;     // TCP: 255 (0xFF), RTU: typicky 1
     uint32_t invBaudRate     = 9600;    // jen pro RTU
-    uint8_t  invIp[4]        = {192,168,4,2}; // IP menice na AP siti
+    uint8_t  invIp[4]        = {10,0,1,28}; // IP menice na AP siti
     uint16_t invTcpPort      = 502;     // standardni Modbus TCP port
     uint16_t invPollMs       = 2000;    // interval dotazovani [ms]
 

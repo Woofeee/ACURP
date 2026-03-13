@@ -86,28 +86,33 @@ struct InverterProfile {
 // ==========================================================================
 // PROFIL: Solinteg Hybrid Inverter
 // Registry dle dokumentace Modbus Register Table V00.17
+//
+// Jednotky v registrech (dle dokumentace):
+//   Výkony:  0.001 kW = 1 W  → raw hodnota je přímo ve W, gain=1
+//   SOC/SOH: 0.01 %          → raw/100 = %, gain=100
+//   Energie: 0.1 kWh         → raw*100 = Wh, gain=10, mul=100
 // ==========================================================================
 static const RegisterDef SOLINTEG_REGS[] = {
-    // Vykon site (smartmetr): + odber, - dodavka
-    REG_I32(11000, 1000, 1,   MAP_GRID),
-    // Vykon PV
-    REG_U32(11028, 1000, 1,   MAP_PV),
-    // Vykon baterie: + vybijeni, - nabijeni
-    REG_I32(30258, 1000, 1,   MAP_BATTERY),
-    // Celkova spotreba
-    REG_I32(31306, 1000, 1,   MAP_LOAD),
-    // SOC [%], gain=100
-    REG_U16(33000, 100,  1,   MAP_SOC),
-    // SOH [%]
-    REG_U16(33001, 100,  1,   MAP_SOH),
-    // Stav menice
-    REG_U16(10105, 1,    1,   MAP_STATUS),
-    // PV vyroba dnes [kWh*10 → Wh]
-    REG_U16(31005, 10,   100, MAP_PV_TODAY),
-    // Koupeno ze site dnes
-    REG_U16(31001, 10,   100, MAP_GRID_BUY),
-    // Prodano do site dnes
-    REG_U16(31000, 10,   100, MAP_GRID_SELL),
+    // Výkon sítě (smartmetr): + odběr, - dodávka [W]
+    REG_I32(11000, 1,   1,   MAP_GRID),
+    // Výkon PV [W]
+    REG_U32(11028, 1,   1,   MAP_PV),
+    // Výkon baterie: + vybíjení, - nabíjení [W]
+    REG_I32(30258, 1,   1,   MAP_BATTERY),
+    // Celková spotřeba domu [W]
+    REG_I32(31306, 1,   1,   MAP_LOAD),
+    // SOC [0.01 %] → [%]
+    REG_U16(33000, 100, 1,   MAP_SOC),
+    // SOH [0.01 %] → [%]
+    REG_U16(33001, 100, 1,   MAP_SOH),
+    // Stav měniče
+    REG_U16(10105, 1,   1,   MAP_STATUS),
+    // PV výroba dnes [0.1 kWh] → [Wh]: raw * 100
+    REG_U16(31005, 10,  100, MAP_PV_TODAY),
+    // Koupeno ze sítě dnes [0.1 kWh] → [Wh]
+    REG_U16(31001, 10,  100, MAP_GRID_BUY),
+    // Prodáno do sítě dnes [0.1 kWh] → [Wh]
+    REG_U16(31000, 10,  100, MAP_GRID_SELL),
 };
 
 // ==========================================================================

@@ -73,7 +73,7 @@ namespace BootScreen {
         tft.setTextColor(t->text);
         tft.setCursor(8, 6);
         char buf[32];
-        snprintf(buf, sizeof(buf), "Solar HMI  %s", version);
+        snprintf(buf, sizeof(buf), "ACU RP  %s", version);
         tft.print(buf);
         tft.drawFastHLine(0, BOOT_HEADER_H, 320, t->dim);
     }
