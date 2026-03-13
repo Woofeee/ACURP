@@ -110,11 +110,10 @@ namespace SolarModel {
             _data.lastUpdateMs     = inv.lastUpdateMs;
             _data.errorCount       = inv.errorCount;
 
-            // phaseL1/L2/L3 – Solinteg neposkytuje fáze samostatně
-            // Odvozeno rovnoměrně z powerGrid dokud nebude jiný zdroj
-            _data.phaseL1 = inv.powerGrid / 3;
-            _data.phaseL2 = inv.powerGrid / 3;
-            _data.phaseL3 = inv.powerGrid - _data.phaseL1 - _data.phaseL2;
+            // Fáze L1/L2/L3 – reálné hodnoty z Modbus registrů 10994/10996/10998
+            _data.phaseL1 = inv.phaseL1;
+            _data.phaseL2 = inv.phaseL2;
+            _data.phaseL3 = inv.phaseL3;
 
             xSemaphoreGive(_mutex);
         }

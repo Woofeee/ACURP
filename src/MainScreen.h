@@ -113,7 +113,7 @@ namespace MainScreen {
     // ---------------------------------------------------------
     static void _drawLeft(const Theme* t, const SolarData& d) {
         _sprLeft.fillScreen(t->bg);
-        _sprLeft.setFont(&fonts::Font2);
+        _sprLeft.setFont(&fonts::DejaVu24);
 
         char buf[16];
 
@@ -132,6 +132,7 @@ namespace MainScreen {
         // dnes kWh
         snprintf(buf, sizeof(buf), "dnes %.1f kWh",
                  d.energyPvToday / 1000.0f);
+        _sprLeft.setFont(&fonts::DejaVu18);
         _sprLeft.setTextColor(t->dim);
         _sprLeft.setCursor(10, 70);
         _sprLeft.print(buf);
@@ -141,6 +142,7 @@ namespace MainScreen {
 
         // Hodnota %
         snprintf(buf, sizeof(buf), "%u", d.soc);
+        _sprLeft.setFont(&fonts::DejaVu24);
         _sprLeft.setTextColor(t->ok);
         _sprLeft.setTextDatum(top_right);
         _sprLeft.drawString(buf, 120, bat_y + 22);
@@ -151,8 +153,9 @@ namespace MainScreen {
         _sprLeft.drawString(" %", 122, bat_y + 22);
 
         // Směr nabíjení
+        _sprLeft.setFont(&fonts::DejaVu18);
         _sprLeft.setTextColor(t->dim);
-        _sprLeft.setCursor(10, bat_y + 44);
+        _sprLeft.setCursor(10, bat_y + 35);
         if (d.powerBattery > 50)       _sprLeft.print("vybiji");
         else if (d.powerBattery < -50) _sprLeft.print("nabiji");
         else                           _sprLeft.print("idle");
@@ -172,7 +175,7 @@ namespace MainScreen {
     // ---------------------------------------------------------
     static void _drawRight(const Theme* t, const SolarData& d) {
         _sprRight.fillScreen(t->bg);
-        _sprRight.setFont(&fonts::Font2);
+        _sprRight.setFont(&fonts::DejaVu24);
 
         char buf[12];
         const int32_t phases[3] = { d.phaseL1, d.phaseL2, d.phaseL3 };
@@ -261,7 +264,6 @@ namespace MainScreen {
         _drawRight(t, d);
 
         // Spodní lišta – jen při změně relé
-        // TODO: detekovat změnu a překreslit jen tehdy
         Header::updateFooter(t, d);
     }
 
@@ -294,17 +296,19 @@ namespace MainScreen {
     // Stará signatura z main.cpp (taskHeartbeat):
     //   MainScreen::update(gTheme, gRTC.getTime(), gWifiSta, gWifiAp, gRTC.isValid())
     void update(const Theme* t, const DateTime& dt,
-            bool wifiSta, bool wifiAp, bool rtcValid) {
-    SolarData d = {};
-    SolarModel::get(d);
-    uint8_t ap  = wifiAp  ? DOT_OK : DOT_OFF;
-    uint8_t sta = wifiSta ? DOT_OK : DOT_OFF;
-    uint8_t inv = d.invOnline ? DOT_OK : DOT_OFF;
+                bool wifiSta, bool wifiAp, bool rtcValid) {
+        SolarData d = {};
+        SolarModel::get(d);
+        uint8_t ap  = wifiAp  ? DOT_OK : DOT_OFF;
+        uint8_t sta = wifiSta ? DOT_OK : DOT_OFF;
+        uint8_t inv = d.invOnline ? DOT_OK : DOT_ERROR;  // červená při výpadku
 
-    Header::update(t, dt, ap, sta, inv, false);    // ← bylo Header::draw()
-    Header::updateFooter(t, d);                    // ← bylo Header::drawFooter()
-    _drawLeft(t, d);
-    _drawRight(t, d);
-}
+        bool alarm = (d.invStatus == 3);  // FAULT → vykřičník
+
+        Header::update(t, dt, ap, sta, inv, alarm);
+        Header::updateFooter(t, d);
+        _drawLeft(t, d);
+        _drawRight(t, d);
+    }
 
 } // namespace MainScreen

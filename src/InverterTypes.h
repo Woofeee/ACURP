@@ -19,6 +19,11 @@ struct InverterData {
     int32_t  powerBattery;    // vykon baterie: + vybijeni, - nabijeni [W]
     int32_t  powerLoad;       // celkova spotřeba domu [W]
 
+    // Faze sítě [W] – kladná = dodávka do sítě, záporná = odběr
+    int32_t  phaseL1;
+    int32_t  phaseL2;
+    int32_t  phaseL3;
+
     // Baterie
     uint16_t soc;             // stav nabiti [%], 0–100
     uint16_t soh;             // zdravi baterie [%], 0–100
@@ -53,6 +58,9 @@ enum RegisterMap : uint8_t {
     MAP_PV_TODAY  = 8,
     MAP_GRID_BUY  = 9,
     MAP_GRID_SELL = 10,
+    MAP_PHASE_L1  = 11,
+    MAP_PHASE_L2  = 12,
+    MAP_PHASE_L3  = 13,
     MAP_IGNORE    = 0xFF,
 };
 
@@ -91,6 +99,7 @@ struct InverterProfile {
 //   Výkony:  0.001 kW = 1 W  → raw hodnota je přímo ve W, gain=1
 //   SOC/SOH: 0.01 %          → raw/100 = %, gain=100
 //   Energie: 0.1 kWh         → raw*100 = Wh, gain=10, mul=100
+//   Fáze:    0.001 kW = 1 W  → raw přímo ve W, gain=1
 // ==========================================================================
 static const RegisterDef SOLINTEG_REGS[] = {
     // Výkon sítě (smartmetr): + odběr, - dodávka [W]
@@ -113,6 +122,10 @@ static const RegisterDef SOLINTEG_REGS[] = {
     REG_U16(31001, 10,  100, MAP_GRID_BUY),
     // Prodáno do sítě dnes [0.1 kWh] → [Wh]
     REG_U16(31000, 10,  100, MAP_GRID_SELL),
+    // Fáze L1/L2/L3 [W] – smartmetr, + dodávka do sítě, - odběr
+    REG_I32(10994, 1,   1,   MAP_PHASE_L1),
+    REG_I32(10996, 1,   1,   MAP_PHASE_L2),
+    REG_I32(10998, 1,   1,   MAP_PHASE_L3),
 };
 
 // ==========================================================================

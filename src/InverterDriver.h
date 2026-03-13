@@ -201,6 +201,9 @@ private:
                 case MAP_PV_TODAY:  _data.energyPvToday    = (uint32_t)scaled; break;
                 case MAP_GRID_BUY:  _data.energyGridToday  = (uint32_t)scaled; break;
                 case MAP_GRID_SELL: _data.energySoldToday  = (uint32_t)scaled; break;
+                case MAP_PHASE_L1:  _data.phaseL1          = scaled; break;
+                case MAP_PHASE_L2:  _data.phaseL2          = scaled; break;
+                case MAP_PHASE_L3:  _data.phaseL3          = scaled; break;
                 default: break;
             }
             xSemaphoreGive(_mutex);

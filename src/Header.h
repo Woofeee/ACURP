@@ -58,7 +58,7 @@ namespace Header {
             tft.drawTriangle(304, 6, 312, 20, 296, 20, t->err);
             tft.setFont(&fonts::Font2);
             tft.setTextColor(t->err);
-            tft.setCursor(301, 10);
+            tft.setCursor(303, 8);
             tft.print("!");
         } else {
             tft.fillRect(294, 4, 20, 18, t->header);
