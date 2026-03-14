@@ -121,54 +121,70 @@ namespace MainScreen {
         char buf[16];
 
         // --- Výroba ---
-        // Hodnota
-        _fmtPower(buf, sizeof(buf), d.powerPV);
-        _sprLeft.setTextColor(t->text);
-        _sprLeft.setTextDatum(top_right);
-        _sprLeft.drawString(buf, 120, 22);
 
-        // Jednotka W
+        // Popisek
+        _sprLeft.setFont(&fonts::DejaVu18);
         _sprLeft.setTextDatum(top_left);
         _sprLeft.setTextColor(t->dim);
-        _sprLeft.drawString(" W", 122, 22);
+        _sprLeft.drawString("Vyroba", 5, 5);
+
+        // Hodnota
+        _fmtPower(buf, sizeof(buf), d.powerPV);
+        _sprLeft.setFont(&fonts::DejaVu40);
+        _sprLeft.setTextColor(t->text);
+        _sprLeft.setTextDatum(top_right);
+        _sprLeft.drawString(buf, 130, 30);
+
+        // Jednotka W
+        _sprLeft.setFont(&fonts::DejaVu24);
+        _sprLeft.setTextDatum(top_left);
+        _sprLeft.setTextColor(t->dim);
+        _sprLeft.drawString(" W", 122, 40);
 
         // dnes kWh
         snprintf(buf, sizeof(buf), "dnes %.1f kWh",
                  d.energyPvToday / 1000.0f);
         _sprLeft.setFont(&fonts::DejaVu18);
         _sprLeft.setTextColor(t->dim);
-        _sprLeft.setCursor(10, 70);
+        _sprLeft.setCursor(5, 70);
         _sprLeft.print(buf);
 
         // --- Baterie ---
         int16_t bat_y = MAIN_TILE_H;  // offset v spritu
 
-        // Hodnota %
-        snprintf(buf, sizeof(buf), "%u", d.soc);
-        _sprLeft.setFont(&fonts::DejaVu24);
-        _sprLeft.setTextColor(t->ok);
-        _sprLeft.setTextDatum(top_right);
-        _sprLeft.drawString(buf, 120, bat_y + 22);
-
-        // Jednotka %
+        // Popisek
+        _sprLeft.setFont(&fonts::DejaVu18);
         _sprLeft.setTextDatum(top_left);
-        _sprLeft.setTextColor(t->ok);
-        _sprLeft.drawString(" %", 122, bat_y + 22);
-
+        _sprLeft.setTextColor(t->dim);
+        _sprLeft.drawString("Baterie", 5, bat_y + 10);
+        
         // Směr nabíjení
         _sprLeft.setFont(&fonts::DejaVu18);
         _sprLeft.setTextColor(t->dim);
-        _sprLeft.setCursor(10, bat_y + 35);
+        _sprLeft.setCursor(90, bat_y + 10);
         if (d.powerBattery > 50)       _sprLeft.print("vybiji");
         else if (d.powerBattery < -50) _sprLeft.print("nabiji");
         else                           _sprLeft.print("idle");
+        
+        // Hodnota %
+        snprintf(buf, sizeof(buf), "%u", d.soc);
+        _sprLeft.setFont(&fonts::DejaVu40);
+        _sprLeft.setTextColor(t->ok);
+        _sprLeft.setTextDatum(top_right);
+        _sprLeft.drawString(buf, 120, bat_y + 30);
+
+        // Jednotka %
+        _sprLeft.setFont(&fonts::DejaVu24);
+        _sprLeft.setTextDatum(top_left);
+        _sprLeft.setTextColor(t->dim);
+        _sprLeft.drawString(" %", 122, bat_y + 40);
 
         // Progress bar baterie
-        int16_t bar_y = bat_y + 58;
-        _sprLeft.fillRect(10, bar_y, 140, 5, t->dim);
+        int16_t bar_y = bat_y + 70;
+        _sprLeft.fillRect(10, bar_y, 140, 10, t->dim);
         int16_t fill = (int16_t)(d.soc * 140 / 100);
         uint16_t barColor = (d.soc > 20) ? t->ok : t->err;
-        _sprLeft.fillRect(10, bar_y, fill, 5, barColor);
+        _sprLeft.fillRect(10, bar_y, fill, 10, barColor);
 
         _sprLeft.pushSprite(0, CONTENT_Y);
 
@@ -181,11 +197,26 @@ namespace MainScreen {
         _sprRight.fillScreen(t->bg);
         _sprRight.drawFastVLine(0, 0, CONTENT_H, t->splitline);
         //_sprRight.drawFastVLine(1, 0, CONTENT_H, t->splitline); // odkometovat pokud je potřeba 2 pixely silná čára
-        _sprRight.setFont(&fonts::DejaVu24);
+        //_sprRight.setFont(&fonts::DejaVu24);
 
         char buf[12];
         const int32_t phases[3] = { d.phaseL1, d.phaseL2, d.phaseL3 };
         const char*   labels[3] = { "L1", "L2", "L3" };
+
+
+        // Popisek
+        _sprRight.setFont(&fonts::DejaVu18);
+        _sprRight.setTextDatum(top_left);
+        _sprRight.setTextColor(t->dim);
+        _sprRight.drawString("Pretok", 5, 5);
+
+        // Legenda
+        _sprRight.setFont(&fonts::DejaVu18);
+        _sprRight.setTextDatum(top_left);
+        _sprRight.setTextColor(t->ok);
+        _sprRight.drawString("Dodavka", 5, 160);
+
+        _sprRight.setFont(&fonts::DejaVu24);
 
         // Y pozice pro 3 řádky ve středu pravého sloupce
         // Oblast: 0–188px (CONTENT_H), legenda dole cca 155px
@@ -195,16 +226,17 @@ namespace MainScreen {
             int32_t val = phases[i];
 
             // Label Lx
-            _sprRight.setTextColor(t->dim);
+            _sprRight.setTextColor(t->dim);   // ← label vždy šedý
             _sprRight.setCursor(10, rowY[i]);
             _sprRight.print(labels[i]);
+            _sprRight.setTextColor(t->err);   // ← až pak červená pro hodnotu
 
             // Hodnota – zarovnaná vpravo na pozici 124px
             _fmtPower(buf, sizeof(buf), val);
             uint16_t valColor = (val >= 0) ? t->ok : t->err;
             _sprRight.setTextColor(valColor);
             _sprRight.setTextDatum(top_right);
-            _sprRight.drawString(buf, 124, rowY[i]);
+            _sprRight.drawString(buf, 130, rowY[i]);
 
             // Jednotka W
             _sprRight.setTextDatum(top_left);
@@ -215,13 +247,14 @@ namespace MainScreen {
         // Pokud data nejsou platná – zobraz pomlčky
         if (!d.valid) {
             _sprRight.fillRect(0, 0, MAIN_RIGHT_W, 140, t->bg);
-            _sprRight.setTextColor(t->err);
+            _sprRight.drawFastVLine(0, 0, CONTENT_H, t->splitline);  // ← přikreslit zpět
             for (uint8_t i = 0; i < 3; i++) {
+                _sprRight.setTextColor(t->dim);
                 _sprRight.setCursor(10, rowY[i]);
                 _sprRight.print(labels[i]);
                 _sprRight.setTextColor(t->err);
                 _sprRight.setTextDatum(top_right);
-                _sprRight.drawString("---", 124, rowY[i]);
+                _sprRight.drawString("---", 130, rowY[i]);
                 _sprRight.setTextDatum(top_left);
                 _sprRight.setTextColor(t->dim);
                 _sprRight.drawString(" W", 126, rowY[i]);

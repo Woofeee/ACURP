@@ -38,6 +38,7 @@ FM24CL64      gFRAM;
 volatile bool gWifiSta = false;
 volatile bool gWifiAp  = false;
 volatile bool gNtpOk   = false;
+volatile bool gNtpResync = false;  // žádost o okamžitý NTP sync z UI
 
 // 5-way switch
 FiveWaySwitch gSwitch;
@@ -264,6 +265,25 @@ void loop() {
                           WiFi.localIP().toString().c_str());
         }
     }
+
+
+    // Okamžitý NTP sync na žádost z UI (SettingScreen)
+    if (gNtpResync && gWifiSta) {
+        gNtpResync = false;
+        lastNtpResync = now;  // resetuj timer aby se hned znovu nespustil
+        Serial.print("[NTP] Sync z UI");
+        NTP.begin(gConfig.ntpServer);
+        NTP.waitSet([]() { Serial.print("."); });
+        time_t t = time(nullptr);
+        struct tm* ti = localtime(&t);
+        Serial.printf("\n[NTP] %02d:%02d:%02d\n",
+                  ti->tm_hour, ti->tm_min, ti->tm_sec);
+        DateTime dt;
+        dt.year=ti->tm_year+1900; dt.month=ti->tm_mon+1; dt.day=ti->tm_mday;
+        dt.hour=ti->tm_hour;     dt.minute=ti->tm_min;   dt.second=ti->tm_sec;
+        gRTC.setTime(dt);
+    }
+
 
     // NTP resync dle konfigurace
     if (gConfig.ntpEn && gWifiSta &&

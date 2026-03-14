@@ -4,9 +4,9 @@
 //  Položky: Historie / Diagnostika / Nastavení / Instalace / Zpět
 //
 //  Navigace:
-//    UP/DOWN  – pohyb kurzoru
+//    UP/DOWN  – pohyb kurzoru (scroll pokud více než MENU_VISIBLE)
 //    CENTER   – vstup do podmenu
-//    LEFT     – zpět (= Zpět položka)
+//    LEFT     – zpět
 // =============================================================
 #pragma once
 #include <Arduino.h>
@@ -22,8 +22,8 @@
 // Definice položek menu
 struct MenuItem {
     const char* label;
-    Screen      target;     // cílový screen při výběru
-    bool        arrow;      // zobrazit šipku ▶ (podmenu)
+    Screen      target;
+    bool        arrow;
 };
 
 namespace MenuScreen {
@@ -33,43 +33,63 @@ namespace MenuScreen {
         { "Diagnostika", SCREEN_DIAGNOSTIC, true  },
         { "Nastaveni",   SCREEN_SETTING,    true  },
         { "Instalace",   SCREEN_PASSWORD,   true  },
-        //{ "Zpet",        SCREEN_NONE,       false },
+        //{ "Rezerva",     SCREEN_NONE,       false },
+        //{ "Rezerva",     SCREEN_NONE,       false },
+        //{ "Rezerva",     SCREEN_NONE,       false },
     };
-    static const uint8_t _itemCount = sizeof(_items) / sizeof(_items[0]);
+    static const uint8_t _itemCount    = sizeof(_items) / sizeof(_items[0]);
+    static const uint8_t MENU_VISIBLE  = 4;    // počet viditelných položek
 
-    static uint8_t _cursor = 0;     // index aktivní položky
+    static uint8_t _cursor       = 0;  // absolutní index aktivní položky
+    static uint8_t _scrollOffset = 0;  // index první viditelné položky
 
-    // Výška řádku menu
     #define MENU_ROW_H   34
-    #define MENU_START_Y (CONTENT_Y + 22)  // pod nadpisem
+    #define MENU_START_Y (CONTENT_Y + 22)
 
     // ---------------------------------------------------------
-    //  Nakresli jednu položku menu
+    //  Nakresli jednu položku na pozici slot (0–3)
     // ---------------------------------------------------------
-    static void _drawItem(const Theme* t, uint8_t idx, bool active) {
-        int16_t y = MENU_START_Y + idx * MENU_ROW_H;
+    static void _drawItem(const Theme* t, uint8_t slot, uint8_t idx, bool active) {
+        int16_t y = MENU_START_Y + slot * MENU_ROW_H;
 
-        // Pozadí
         if (active) {
             tft.fillRect(8, y, 304, MENU_ROW_H, t->header);
-            // Cyan pruh vlevo
             tft.fillRect(8, y, 3, MENU_ROW_H, t->accent);
         } else {
             tft.fillRect(8, y, 304, MENU_ROW_H, t->bg);
         }
 
-        // Text
         tft.setFont(&fonts::Font4);
-        tft.setTextColor(active ? t->accent : 0x7BEF);  // cyan nebo šedá
+        tft.setTextColor(active ? t->accent : 0x7BEF);
         tft.setCursor(20, y + 8);
         tft.print(_items[idx].label);
 
-        // Šipka vpravo
         if (_items[idx].arrow) {
             tft.setFont(&fonts::Font2);
             tft.setTextColor(active ? t->accent : t->dim);
             tft.setCursor(300, y + 12);
             tft.print(">");
+        }
+
+       /*
+        // Scrollbar indikátor – tečka vpravo pokud je více položek
+        if (_itemCount > MENU_VISIBLE) {
+            uint8_t dotY = MENU_START_Y + (_cursor * (MENU_VISIBLE * MENU_ROW_H - 6)) / (_itemCount - 1);
+            tft.fillRect(314, MENU_START_Y, 4, MENU_VISIBLE * MENU_ROW_H, t->bg);
+            tft.fillRect(314, MENU_START_Y, 2, MENU_VISIBLE * MENU_ROW_H, t->dim);
+            tft.fillRect(313, dotY, 4, 6, t->accent);
+        }
+        */
+    }
+
+    // ---------------------------------------------------------
+    //  Překresli všechny viditelné položky
+    // ---------------------------------------------------------
+    static void _drawAllItems(const Theme* t) {
+        uint8_t visCount = min(_itemCount, MENU_VISIBLE);
+        for (uint8_t slot = 0; slot < visCount; slot++) {
+            uint8_t idx = _scrollOffset + slot;
+            _drawItem(t, slot, idx, idx == _cursor);
         }
     }
 
@@ -82,9 +102,8 @@ namespace MenuScreen {
 
         tft.fillScreen(t->bg);
 
-        // Záhlaví + spodní lišta
         Header::draw(t, dt, apState, staState, invState, alarm);
-        Header::drawFooter(t, d);
+        tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);  // prázdná spodní lišta
 
         // Nadpis
         tft.setFont(&fonts::Font2);
@@ -94,11 +113,9 @@ namespace MenuScreen {
         tft.drawFastHLine(16, CONTENT_Y + 18, 288, t->dim);
 
         // Položky
-        for (uint8_t i = 0; i < _itemCount; i++) {
-            _drawItem(t, i, i == _cursor);
-        }
+        _drawAllItems(t);
 
-        // Nápověda ve spodní liště
+        // Nápověda
         tft.setFont(&fonts::Font2);
         tft.setTextColor(t->dim);
         tft.setTextDatum(middle_center);
@@ -122,28 +139,35 @@ namespace MenuScreen {
         switch (btn) {
             case SW_UP:
                 if (_cursor > 0) {
-                    uint8_t prev = _cursor;
                     _cursor--;
-                    _drawItem(t, prev, false);
-                    _drawItem(t, _cursor, true);
+                    // Scroll nahoru pokud kurzor vyšel z viditelné oblasti
+                    if (_cursor < _scrollOffset) {
+                        _scrollOffset--;
+                        _drawAllItems(t);
+                    } else {
+                        _drawItem(t, _cursor - _scrollOffset + 1, _cursor + 1, false);
+                        _drawItem(t, _cursor - _scrollOffset,     _cursor,     true);
+                    }
                 }
                 return SCREEN_NONE;
 
             case SW_DOWN:
                 if (_cursor < _itemCount - 1) {
-                    uint8_t prev = _cursor;
                     _cursor++;
-                    _drawItem(t, prev, false);
-                    _drawItem(t, _cursor, true);
+                    // Scroll dolů pokud kurzor vyšel z viditelné oblasti
+                    if (_cursor >= _scrollOffset + MENU_VISIBLE) {
+                        _scrollOffset++;
+                        _drawAllItems(t);
+                    } else {
+                        _drawItem(t, _cursor - _scrollOffset - 1, _cursor - 1, false);
+                        _drawItem(t, _cursor - _scrollOffset,     _cursor,     true);
+                    }
                 }
                 return SCREEN_NONE;
 
             case SW_CENTER: {
                 Screen target = _items[_cursor].target;
-                if (target == SCREEN_NONE) {
-                    // Zpět položka
-                    return SCREEN_MAIN;
-                }
+                if (target == SCREEN_NONE) return SCREEN_MAIN;
                 return target;
             }
 
@@ -155,7 +179,9 @@ namespace MenuScreen {
         }
     }
 
-    // Reset kurzoru při vstupu do menu
-    void reset() { _cursor = 0; }
+    void reset() {
+        _cursor       = 0;
+        _scrollOffset = 0;
+    }
 
 } // namespace MenuScreen

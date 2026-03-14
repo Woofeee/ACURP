@@ -15,14 +15,14 @@
 // Pocet chyb za sebou nez se oznaci data za neplatna
 #define INVERTER_MAX_ERRORS  5
 
+// Interval opakování TCP připojení [ms]
+#define INVERTER_TCP_RETRY_MS  10000
+
 // =============================================================================
 // InverterDriver
 // =============================================================================
 class InverterDriver {
 public:
-    // Konstruktor – vezme konfiguraci primo z gConfig
-    // dereCallback: funkce pro rizeni DE/RE pinu RS485 pres MCP23017
-    //               pro TCP transport predej nullptr
     InverterDriver(const Config& cfg, ModbusDeReCallback dereCallback = nullptr)
         : _cfg(cfg), _dereCallback(dereCallback)
     {
@@ -36,11 +36,18 @@ public:
     }
 
     // Inicializace – vytvori transportni vrstvu a pokusi se pripojit
+    // TCP: vraci false pokud server neni dostupny
+    // RTU: vzdy vraci true (jen init UART)
     bool begin() {
         const InverterProfile& profile = INVERTER_PROFILES[_cfg.invProfileIndex];
         Serial.printf("[INV] Profil: %s  transport: %s\n",
             profile.name,
             _cfg.invTransport == TRANSPORT_TCP ? "TCP" : "RTU");
+
+        if (_client) {
+            delete _client;
+            _client = nullptr;
+        }
 
         if (_cfg.invTransport == TRANSPORT_RTU) {
             _client = new ModbusRTUClient(_cfg.invBaudRate, _dereCallback);
@@ -54,7 +61,6 @@ public:
     }
 
     // Jednorázové cteni vsech registru profilu
-    // Vraci true pokud aspon jeden registr byl precten uspesne
     bool poll() {
         const InverterProfile& profile = INVERTER_PROFILES[_cfg.invProfileIndex];
         if (profile.regCount == 0) return false;
@@ -85,7 +91,6 @@ public:
             _applyRegister(reg, raw);
         }
 
-        // Aktualizace metadat pod mutex
         if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             if (anyOk) {
                 _data.valid        = true;
@@ -103,7 +108,6 @@ public:
         return anyOk;
     }
 
-    // Kopiruje aktualni data do cilove struktury (thread-safe)
     bool getData(InverterData& out) {
         if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             out = _data;
@@ -113,7 +117,6 @@ public:
         return false;
     }
 
-    // Vraci true pokud jsou data cerstva (mene nez maxAgeMs ms stara)
     bool isDataFresh(uint32_t maxAgeMs = 10000) {
         if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
             bool fresh = _data.valid &&
@@ -124,38 +127,49 @@ public:
         return false;
     }
 
-    // Zapis jednoho registru (ridici prikazy)
-    // POZOR: Solinteg – pis vzdy jen jeden registr najednou!
     ModbusError writeRegister(uint16_t addr, uint16_t value) {
         return _client->writeSingleRegister(_cfg.invSlaveId, addr, value);
     }
 
-    // Nastavi pracovni mod menice (registr 50000)
-    // EMS_ACCtrlMode  = 769  (0x0301)
-    // EMS_BattCtrlMode= 771  (0x0303)
     ModbusError setWorkMode(uint16_t modeValue) {
         return writeRegister(50000, modeValue);
     }
 
-    // Vraci nazev aktivniho profilu
     const char* profileName() const {
         return INVERTER_PROFILES[_cfg.invProfileIndex].name;
     }
 
     // -----------------------------------------------------------------------
-    // FreeRTOS task wrapper
-    // Pouziti v main.cpp:
-    //   xTaskCreate(InverterDriver::task, "Inverter", 4096, &gInverter, 3, nullptr);
+    // FreeRTOS task
+    //
+    // TCP transport:
+    //   - begin() se opakuje každých INVERTER_TCP_RETRY_MS dokud server
+    //     není dostupný – task nikdy nekončí, Pico se připojí jakmile
+    //     simulátor / měnič nastartuje
+    //
+    // RTU transport:
+    //   - begin() vždy uspěje (jen init UART), selhání je fatální HW problém
+    //   - task se ukončí aby nevznikala smyčka bez smyslu
     // -----------------------------------------------------------------------
     static void task(void* param) {
         InverterDriver* drv = static_cast<InverterDriver*>(param);
         Serial.println("[INV] Task spusten");
 
-        if (!drv->begin()) {
-            Serial.println("[INV] Inicializace selhala, task ukoncen");
-            vTaskDelete(nullptr);
-            return;
+        // Inicializace – pro TCP opakuj dokud server neni dostupny
+        while (!drv->begin()) {
+            if (drv->_cfg.invTransport == TRANSPORT_RTU) {
+                // RTU init selhal – fatální HW problém
+                Serial.println("[INV] RTU init selhal, task ukoncen");
+                vTaskDelete(nullptr);
+                return;
+            }
+            // TCP – server zatím nedostupný, zkus za chvíli
+            Serial.printf("[INV] TCP nedostupne, zkusim za %us...\n",
+                          INVERTER_TCP_RETRY_MS / 1000);
+            vTaskDelay(pdMS_TO_TICKS(INVERTER_TCP_RETRY_MS));
         }
+
+        Serial.println("[INV] Pripojeno, spoustim polling");
 
         TickType_t xLastWake = xTaskGetTickCount();
         for (;;) {
@@ -164,6 +178,8 @@ public:
             if (!drv->poll()) {
                 Serial.println("[INV] Poll selhal, cekam 5s...");
                 vTaskDelay(pdMS_TO_TICKS(5000));
+                // Reset timing aby se po pauze nespustilo víc pollů najednou
+                xLastWake = xTaskGetTickCount();
             }
         }
     }
@@ -175,7 +191,6 @@ private:
     InverterData       _data;
     SemaphoreHandle_t  _mutex;
 
-    // Prepocita raw Modbus hodnotu a ulozi do _data
     void _applyRegister(const RegisterDef& reg, const uint16_t* raw) {
         int32_t value = 0;
 
