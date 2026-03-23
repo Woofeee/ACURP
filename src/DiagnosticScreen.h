@@ -136,7 +136,7 @@ namespace DiagnosticScreen {
 
         row("Uptime",   upBuf,                       t->ok,  CONTENT_Y + 32);
         row("Modbus",   mbuf,  d.invOnline ? t->ok : t->err, CONTENT_Y + 50);
-        row("Invertor", d.invOnline ? "online" : "offline",
+        row("Invertor", d.invOnline ? "OK" : "OFFLINE",
             d.invOnline ? t->ok : t->err,                    CONTENT_Y + 68);
         row("FRAM",     "OK",                        t->ok,  CONTENT_Y + 86);
         row("RTC",      "OK",                        t->ok,  CONTENT_Y + 104);

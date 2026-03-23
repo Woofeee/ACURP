@@ -252,7 +252,7 @@ namespace MainScreen {
                 _sprRight.setTextColor(t->dim);
                 _sprRight.setCursor(10, rowY[i]);
                 _sprRight.print(labels[i]);
-                _sprRight.setTextColor(t->err);
+                _sprRight.setTextColor(t->text);
                 _sprRight.setTextDatum(top_right);
                 _sprRight.drawString("---", 130, rowY[i]);
                 _sprRight.setTextDatum(top_left);
