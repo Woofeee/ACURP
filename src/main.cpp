@@ -13,15 +13,17 @@
 #include "HW_Config.h"
 #include "Config.h"
 #include "FM24CL64.h"
+#include "MCP23017.h"
 #include "PCF85063A.h"
+#include "FiveWaySwitch.h"
 #include "Theme.h"
 #include "ScreenManager.h"
 #include "BootScreen.h"
 #include "LogoScreen.h"
-#include "MainScreen.h"
-#include "InverterDriver.h"
 #include "SolarData.h"
-#include "FiveWaySwitch.h"
+#include "InverterDriver.h"
+#include "BoilerConfig.h"
+#include "BoilerController.h"
 #include "main_ui_loop.h"
 
 #include <hardware/watchdog.h>
@@ -32,25 +34,26 @@
 // =============================================================
 //  Globalni stav
 // =============================================================
-const Theme*  gTheme   = &THEME_DARK;
+const Theme*  gTheme     = &THEME_DARK;
 PCF85063A     gRTC;
 FM24CL64      gFRAM;
-volatile bool gWifiSta = false;
-volatile bool gWifiAp  = false;
-volatile bool gNtpOk   = false;
-volatile bool gNtpResync = false;  // žádost o okamžitý NTP sync z UI
-
-// 5-way switch
+MCP23017      gMCP;
 FiveWaySwitch gSwitch;
 
-// Merenic – inicializovan z gConfig (nacteneho z FRAM nebo defaults)
-// nullptr = DE/RE callback (TCP transport ho nepotrebuje)
+volatile bool gWifiSta   = false;
+volatile bool gWifiAp    = false;
+volatile bool gNtpOk     = false;
+volatile bool gNtpResync = false;
+
+// Merenic
 InverterDriver gInverter(gConfig, nullptr);
 
+// Boiler controller
+BoilerController* gBoilerCtrl = nullptr;
+BoilerRuntime     gBoilerRt[BOILER_MAX_COUNT];
+
 // =============================================================
-//  taskHeartbeat – sekundovy tik Serial + watchdog
-//  POZOR: překreslování displeje řídí uiLoop() v loop()
-//         taskHeartbeat jen aktualizuje SolarModel a watchdog
+//  taskHeartbeat
 // =============================================================
 void taskHeartbeat(void* p) {
     TickType_t xLastWake = xTaskGetTickCount();
@@ -58,10 +61,10 @@ void taskHeartbeat(void* p) {
         vTaskDelayUntil(&xLastWake, pdMS_TO_TICKS(1000));
         watchdog_update();
 
-        // INV stav + přepis do SolarModel pro UI
         InverterData inv;
         gInverter.getData(inv);
         SolarModel::updateFromInverter(inv);
+
 
         DateTime dt = gRTC.getTime();
         Serial.printf("[HB] %02d:%02d:%02d STA:%s AP:%s heap:%u "
@@ -79,10 +82,26 @@ void taskHeartbeat(void* p) {
 }
 
 // =============================================================
+//  taskBoiler – řídicí logika zásobníků (Core 1)
+// =============================================================
+void taskBoiler(void* p) {
+    BoilerController* ctrl = static_cast<BoilerController*>(p);
+    Serial.println("[Boiler] Task spusten");
+
+    TickType_t xLastWake = xTaskGetTickCount();
+    for (;;) {
+        vTaskDelayUntil(&xLastWake, pdMS_TO_TICKS(BOILER_TICK_MS));
+        SolarData d;
+        SolarModel::get(d);
+        ctrl->tick(d);
+    }
+}
+
+// =============================================================
 //  setup()
 // =============================================================
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(SERIAL_BAUD);
     uint32_t sw = millis();
     while (!Serial && millis() - sw < 3000) delay(10);
     Serial.println("\n=== ACU RP " FW_VERSION " ===");
@@ -95,9 +114,8 @@ void setup() {
     tft.init();
     tft.setRotation(1);
 
-    // Nacti konfiguraci
-    // TODO: ConfigManager::loadFromFram() az bude FRAM driver v main
-    ConfigManager::loadDefaults();
+    // Konfigurace
+    ConfigManager::loadFromFram();
     gTheme = THEMES[gConfig.themeIndex];
     ConfigManager::print();
 
@@ -136,13 +154,28 @@ void setup() {
         BootScreen::print(gTheme, BOOT_ERR, "RTC  chyba");
     }
 
+    // MCP23017
+    if (gMCP.begin()) {
+        BootScreen::print(gTheme, BOOT_OK, "MCP23017 rele OK");
+    } else {
+        BootScreen::print(gTheme, BOOT_WARN, "MCP23017 chyba – rele nedostupna");
+    }
+
+
     // 5-way switch
     gSwitch.begin();
     BootScreen::print(gTheme, BOOT_OK, "5-way switch");
 
+    // HDO pin
+    if (HDO_PIN_ENABLED) {
+        pinMode(PIN_HDO, INPUT_PULLUP);
+        BootScreen::print(gTheme, BOOT_OK, "HDO pin OK");
+    } else {
+        BootScreen::print(gTheme, BOOT_DISABLED, "HDO pin (casova zaloha)");
+    }
+
     // WiFi AP
     if (gConfig.wifiApEn) {
-        // TODO: WiFi.softAP() s parametry z gConfig
         BootScreen::print(gTheme, BOOT_DISABLED, "WiFi AP  (zatim nepodporovano)");
     } else {
         BootScreen::print(gTheme, BOOT_DISABLED, "WiFi AP  (vypnuto)");
@@ -190,41 +223,27 @@ void setup() {
         BootScreen::print(gTheme, BOOT_DISABLED, "NTP  (bez WiFi)");
     }
 
-    // Simulator test
-    Serial.print("[TEST] Ping 10.0.1.28:502 ... ");
-    WiFiClient testClient;
-    if (testClient.connect("10.0.1.28", 502)) {
-        Serial.println("OK – server odpovida");
-        testClient.stop();
-    } else {
-        Serial.println("FAIL – nedostupne");
-    }
-
-    // SolarModel – sdílená data mezi jádry
+    // SolarModel
     SolarModel::begin();
 
-    // Tasky – HB spusť PRVNÍ aby watchdog běžel před INV connect()
-    xTaskCreate(taskHeartbeat, "HB", 2048, nullptr, 3, nullptr);
+    // BoilerController
+    gBoilerCtrl = new BoilerController(
+        gBoilerSys, gBoilerCfg, gBoilerRt, gMCP, gRTC);
+    gBoilerCtrl->begin();
+    snprintf(buf, sizeof(buf), "Boiler ctrl %u bytu", gConfig.numBoilers);
+    BootScreen::print(gTheme, BOOT_OK, buf);
 
-    // Krátká pauza – nech HB task nastartovat a zavolat watchdog_update()
+    // Tasky – spusť AŽ PO WiFi (ověřeno funkční na Pico 2W)
+    xTaskCreate(taskHeartbeat, "HB",     2048, nullptr,      3, nullptr);
     delay(200);
-
-    // Merenic – Modbus task
-    // Stack 6144: WiFiClient + Modbus buffer + FreeRTOS overhead
-    Serial.printf("[INV] Spoustim task: %s %u.%u.%u.%u:%u slave=%u poll=%ums\n",
-        gConfig.invTransport == TRANSPORT_TCP ? "TCP" : "RTU",
-        gConfig.invIp[0], gConfig.invIp[1],
-        gConfig.invIp[2], gConfig.invIp[3],
-        gConfig.invTcpPort,
-        gConfig.invSlaveId,
-        gConfig.invPollMs);
     xTaskCreate(InverterDriver::task, "Inverter", 6144, &gInverter, 2, nullptr);
     BootScreen::print(gTheme, BOOT_OK, "Modbus task");
+    xTaskCreate(taskBoiler, "Boiler", CORE1_STACK_SIZE, gBoilerCtrl, 2, nullptr);
+    BootScreen::print(gTheme, BOOT_OK, "Boiler task");
 
-    // Watchdog – aktivuj az po dokonceni bootu
+    // Watchdog
     watchdog_enable(8000, true);
 
-    // Pauza aby byl boot citelny
     delay(1500);
 
     // Logo screen
@@ -232,24 +251,23 @@ void setup() {
     LogoScreen::draw(gTheme, FW_VERSION);
     delay(2000);
 
-    // UI setup – Main screen + první vykreslení
+    // UI
     uiSetup();
 
     Serial.println("[Setup] Hotovo");
 }
 
 // =============================================================
-//  loop() – UI smyčka + WiFi reconnect + NTP resync
+//  loop()
 // =============================================================
 void loop() {
-    // UI – vstup ze switche + překreslování + periodický update
     uiLoop();
 
     static uint32_t lastReconnect = 0;
     static uint32_t lastNtpResync = 0;
     uint32_t now = millis();
 
-    // WiFi STA reconnect kazdych 30s
+    // WiFi STA reconnect každých 30s
     if (gConfig.wifiStaEn && now - lastReconnect > 30000) {
         lastReconnect = now;
         if (WiFi.status() != WL_CONNECTED) {
@@ -266,26 +284,24 @@ void loop() {
         }
     }
 
-
-    // Okamžitý NTP sync na žádost z UI (SettingScreen)
+    // Okamžitý NTP sync z UI
     if (gNtpResync && gWifiSta) {
-        gNtpResync = false;
-        lastNtpResync = now;  // resetuj timer aby se hned znovu nespustil
+        gNtpResync    = false;
+        lastNtpResync = now;
         Serial.print("[NTP] Sync z UI");
         NTP.begin(gConfig.ntpServer);
         NTP.waitSet([]() { Serial.print("."); });
         time_t t = time(nullptr);
         struct tm* ti = localtime(&t);
         Serial.printf("\n[NTP] %02d:%02d:%02d\n",
-                  ti->tm_hour, ti->tm_min, ti->tm_sec);
+                      ti->tm_hour, ti->tm_min, ti->tm_sec);
         DateTime dt;
         dt.year=ti->tm_year+1900; dt.month=ti->tm_mon+1; dt.day=ti->tm_mday;
         dt.hour=ti->tm_hour;     dt.minute=ti->tm_min;   dt.second=ti->tm_sec;
         gRTC.setTime(dt);
     }
 
-
-    // NTP resync dle konfigurace
+    // Periodický NTP resync
     if (gConfig.ntpEn && gWifiSta &&
         now - lastNtpResync > gConfig.ntpResyncSec * 1000UL) {
         lastNtpResync = now;

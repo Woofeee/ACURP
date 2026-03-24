@@ -7,8 +7,11 @@
 //
 //  Předpoklady v main.cpp:
 //    extern LGFX tft;
-//    FiveWaySwitch gSwitch;   – definováno v main.cpp
+//    FiveWaySwitch    gSwitch;
 //    extern PCF85063A gRTC;
+//    MCP23017         gMCP;
+//    BoilerConfig     gBoilerCfg[BOILER_MAX_COUNT];
+//    BoilerSystem     gBoilerSys;
 //    SolarModel::begin() voláno před startem tasků
 // =============================================================
 #pragma once
@@ -18,6 +21,8 @@
 #include "Theme.h"
 #include "PCF85063A.h"
 #include "FiveWaySwitch.h"
+#include "MCP23017.h"
+#include "BoilerConfig.h"
 
 // Všechny screeny
 #include "MainScreen.h"
@@ -27,28 +32,32 @@
 #include "SettingScreen.h"
 #include "PasswordScreen.h"
 #include "UdPScreen.h"
+#include "DiscoveryScreen.h"
+#include "ControlScreen.h"
+#include "BoilerDetailScreen.h"
 
 // =============================================================
-//  Glue proměnné
-//  Definovány v main.cpp – jen extern reference
+//  Extern reference na globální proměnné z main.cpp
 // =============================================================
 extern const Theme*       gTheme;
 extern PCF85063A          gRTC;
 extern volatile bool      gWifiSta;
 extern volatile bool      gWifiAp;
 extern FiveWaySwitch      gSwitch;
+extern MCP23017           gMCP;
+extern BoilerConfig       gBoilerCfg[BOILER_MAX_COUNT];
+extern BoilerSystem       gBoilerSys;
 
-static SolarData    gUI_data  = {};
-static DateTime     gUI_dt    = {};
-static bool         gAlarm    = false;
+static SolarData    gUI_data = {};
+static DateTime     gUI_dt   = {};
+static bool         gAlarm   = false;
 
-// Stav indikátorů záhlaví
 static uint8_t gDotAP  = DOT_OFF;
 static uint8_t gDotSTA = DOT_OFF;
 static uint8_t gDotINV = DOT_OFF;
 
 // =============================================================
-//  Pomocná funkce: přepni screen a volej reset() pokud existuje
+//  Přepni screen + volej reset() pokud existuje
 // =============================================================
 static void _doSwitch(Screen next) {
     switch (next) {
@@ -58,6 +67,15 @@ static void _doSwitch(Screen next) {
         case SCREEN_SETTING:    SettingScreen::reset();    break;
         case SCREEN_PASSWORD:   PasswordScreen::reset();   break;
         case SCREEN_UDP:        UdPScreen::reset();        break;
+        case SCREEN_DISCOVERY:
+            DiscoveryScreen::reset();
+            DiscoveryScreen::begin(gMCP, gBoilerCfg, gBoilerSys.numBoilers);
+            break;
+        case SCREEN_CONTROL: ControlScreen::reset(); break;
+        case SCREEN_BOILER_DETAIL:
+            BoilerDetailScreen::reset();
+            BoilerDetailScreen::begin(0);  // začni od bytu 1
+            break;
         default: break;
     }
     ScreenManager::switchTo(next);
@@ -100,6 +118,18 @@ static void _drawCurrent() {
             UdPScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
+        case SCREEN_DISCOVERY:
+            DiscoveryScreen::draw(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_CONTROL:
+            ControlScreen::draw(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_BOILER_DETAIL:
+            BoilerDetailScreen::draw(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
         default:
             break;
     }
@@ -108,6 +138,7 @@ static void _drawCurrent() {
 
 // =============================================================
 //  update() – periodická aktualizace (každou sekundu)
+//  Discovery screen se aktualizuje každé 2s (Modbus poll interval)
 // =============================================================
 static void _updateCurrent() {
     Screen cur = ScreenManager::current();
@@ -141,13 +172,26 @@ static void _updateCurrent() {
             UdPScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
+        case SCREEN_DISCOVERY:
+            // Discovery update voláme vždy (má vlastní časování 2s)
+            DiscoveryScreen::update(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_CONTROL:
+            ControlScreen::update(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_BOILER_DETAIL:
+            BoilerDetailScreen::update(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
         default:
             break;
     }
 }
 
 // =============================================================
-//  handleInput() – obsluha 5-way switche pro aktuální screen
+//  handleInput() – obsluha 5-way switche
 // =============================================================
 static void _handleInput(SwButton btn) {
     if (btn == SW_NONE) return;
@@ -177,6 +221,15 @@ static void _handleInput(SwButton btn) {
         case SCREEN_UDP:
             next = UdPScreen::handleInput(gTheme, btn);
             break;
+        case SCREEN_DISCOVERY:
+            next = DiscoveryScreen::handleInput(gTheme, btn, gUI_data);
+            break;
+        case SCREEN_CONTROL:
+            next = ControlScreen::handleInput(gTheme, btn);
+            break;
+        case SCREEN_BOILER_DETAIL:
+            next = BoilerDetailScreen::handleInput(gTheme, btn);
+            break;
         default:
             break;
     }
@@ -187,7 +240,7 @@ static void _handleInput(SwButton btn) {
 }
 
 // =============================================================
-//  Aktualizuj stav záhlaví z externích zdrojů
+//  Aktualizuj stav záhlaví
 // =============================================================
 static void _refreshState() {
     SolarModel::get(gUI_data);
@@ -196,8 +249,6 @@ static void _refreshState() {
     gDotSTA = gWifiSta ? DOT_OK : DOT_OFF;
     gDotAP  = gWifiAp  ? DOT_OK : DOT_OFF;
     gDotINV = gUI_data.invOnline ? DOT_OK : DOT_ERROR;
-
-    // Alarm – fault stav měniče
     gAlarm  = (gUI_data.invStatus == 3);
 }
 
@@ -219,19 +270,23 @@ void uiSetup() {
 //  uiLoop() – hlavní smyčka UI, volej v loop()
 // =============================================================
 void uiLoop() {
-    // 1. Přečti vstup ze 5-way switche
+    // 1. Vstup ze switche
     SwButton btn = gSwitch.read();
     _handleInput(btn);
 
-    // 2. Pokud se změnil screen → překresli
+    // 2. Překresli při změně screenu
     if (ScreenManager::needDraw()) {
         _refreshState();
         _drawCurrent();
         return;
     }
 
-    // 3. Periodický update (1× za sekundu)
-    if (ScreenManager::shouldUpdate()) {
+    // 3. Periodický update 1× za sekundu
+    // Discovery screen má vlastní časování – update voláme vždy
+    if (ScreenManager::current() == SCREEN_DISCOVERY) {
+        _refreshState();
+        _updateCurrent();
+    } else if (ScreenManager::shouldUpdate()) {
         _refreshState();
         _updateCurrent();
     }
