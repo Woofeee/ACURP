@@ -254,7 +254,7 @@ namespace ControlScreen {
                 break;
         }
 
-        // TODO: ConfigManager::saveToFram() až bude FRAM mapa
+        ConfigManager::saveBlockBoilerSys();
         Serial.printf("[CTRL] Uloženo: %s = %s\n",
             _items[idx].label, _items[idx].value);
     }

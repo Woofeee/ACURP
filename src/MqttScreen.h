@@ -205,7 +205,7 @@ namespace MqttScreen {
                 break;
             default: break;
         }
-        // TODO: ConfigManager::saveToFram()
+        ConfigManager::saveBlockMqtt();
         Serial.printf("[MQTT_S] Uloženo: %s = %s\n",
             _items[idx].label, _items[idx].value);
     }
@@ -440,6 +440,7 @@ namespace MqttScreen {
 
                 Serial.printf("[MQTT_S] %s = '%.*s'\n",
                     _items[_textItem].label, plen, _textBuf);
+                ConfigManager::saveBlockMqtt();
                 _editingText = false;
                 _editing     = false;
                 return SCREEN_NONE;
@@ -539,6 +540,7 @@ namespace MqttScreen {
                 _editing   = false;
                 Serial.printf("[MQTT_S] Broker IP = %u.%u.%u.%u\n",
                     _ipOctets[0], _ipOctets[1], _ipOctets[2], _ipOctets[3]);
+                ConfigManager::saveBlockMqtt();
                 _drawAllItems(t);
                 return SCREEN_NONE;
             default:

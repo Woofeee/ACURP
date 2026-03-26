@@ -266,7 +266,7 @@ namespace SerialScreen {
             default: break;
         }
 
-        // TODO: ConfigManager::saveToFram()
+        ConfigManager::saveBlockModbus();
         Serial.printf("[SER] Uloženo: %s = %s%s\n",
             _items[idx].label, _items[idx].value,
             restart ? " (restart)" : "");
@@ -614,6 +614,7 @@ namespace SerialScreen {
                 _editingIp = false;
                 _editing   = false;
                 _needsRestart = true;
+                ConfigManager::saveBlockModbus();
                 Serial.printf("[SER] IP = %u.%u.%u.%u (restart)\n",
                     _ipOctets[0], _ipOctets[1], _ipOctets[2], _ipOctets[3]);
                 _drawAllItems(t);
@@ -650,7 +651,7 @@ namespace SerialScreen {
     static Screen _handleRestartInput(const Theme* t, SwButton btn) {
         switch (btn) {
             case SW_CENTER:
-                // TODO: ConfigManager::saveToFram()
+                ConfigManager::saveBlockModbus();
                 Serial.println("[SER] Restart...");
                 delay(200);
                 watchdog_reboot(0, 0, 0);  // okamžitý restart

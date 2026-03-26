@@ -155,7 +155,7 @@ namespace InverterScreen {
                 break;
             default: break;
         }
-        // TODO: ConfigManager::saveToFram()
+        ConfigManager::saveBlockPlant();
         Serial.printf("[INV_S] Uloženo: %s = %s\n",
             _items[idx].label, _items[idx].value);
     }
