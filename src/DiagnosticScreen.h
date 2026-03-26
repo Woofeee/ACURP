@@ -178,7 +178,15 @@ namespace DiagnosticScreen {
 
         tft.fillScreen(t->bg);
         Header::draw(t, dt, apState, staState, invState, alarm);
-        Header::drawFooter(t, d);
+
+        // Spodní lišta – navigace
+        tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->dim);
+        tft.setTextDatum(middle_center);
+        tft.drawString("LEFT/RIGHT zalozka  LEFT zpet", 160, FTR_Y + 13);
+        tft.setTextDatum(top_left);
+
         _drawTabs(t);
         _drawContent(t, d);
     }

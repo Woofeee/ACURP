@@ -50,7 +50,13 @@ public:
         }
 
         if (_cfg.invTransport == TRANSPORT_RTU) {
-            _client = new ModbusRTUClient(_cfg.invBaudRate, _dereCallback);
+            _client = new ModbusRTUClient(
+                _cfg.invBaudRate,
+                _dereCallback,
+                _cfg.invDataBits,
+                _cfg.invParity,
+                _cfg.invStopBits
+            );
         } else {
             _client = new ModbusTCPClient(_cfg.invIp, _cfg.invTcpPort);
         }

@@ -1,19 +1,30 @@
 // =============================================================
-//  HistoryScreen.h – týdenní historie výroby / spotřeby
+//  HistoryScreen.h – týdenní historie
 //
-//  Layout:
-//    Záložky: [VYROBA] [SPOTREBA]  (LEFT/RIGHT přepíná)
-//    Sloupcový graf 7 dní – nejstarší vlevo, dnes vpravo (cyan)
-//    Hodnota kWh nad sloupcem, zkratka dne pod sloupcem
+//  3 záložky (LEFT/RIGHT přepíná):
+//    [VYROBA]  [SPOTREBA]  [ZASOBNIKY]
+//
+//  VYROBA:
+//    Sloupcový graf 7 dní – denní výroba FVE [kWh]
+//    Dnes = cyan, ostatní = žlutá
 //    Dole: Celkem / Průměr za 7 dní
 //
-//  Data: denní součty z FRAM (14 × float32 = 56 B)
-//    Indexy 0–6  = výroba [kWh] (pondělí = 0, index 6 = dnes)
-//    Indexy 7–13 = spotřeba [kWh]
+//  SPOTREBA:
+//    Sloupcový graf 7 dní – denní spotřeba domu [kWh]
+//    Dnes = cyan, ostatní = žlutá
+//    Dole: Celkem / Průměr
 //
-//  LEFT  → přepni záložku (nebo zpět pokud na VYROBA)
-//  RIGHT → přepni záložku
+//  ZASOBNIKY:
+//    Dvoubarevný sloupcový graf 7 dní:
+//      Zelená (spodní) = ohřev ze soláru [kWh]
+//      Červená (horní)  = ohřev ze sítě [kWh]
+//    Dole: Celkem / Průměr / % solár
+//
+//  Data: DaySummary[7] z FRAM (zatím testovací)
+//
 //  LEFT na VYROBA → SCREEN_MENU
+//  LEFT na jiné záložce → předchozí záložka
+//  RIGHT → další záložka
 // =============================================================
 #pragma once
 #include <Arduino.h>
@@ -26,25 +37,35 @@
 #include "SolarData.h"
 #include "PCF85063A.h"
 
-// FRAM layout – denní data
-#define FRAM_ADDR_HISTORY   0x0010  // začátek historie
-// float32 výroba[7] + float32 spotreba[7] = 56 B
-
 namespace HistoryScreen {
 
-    // 0 = Výroba, 1 = Spotřeba
+    // ==========================================================
+    //  Denní souhrn – 16B, 7 dní v FRAM (zatím RAM)
+    // ==========================================================
+    struct DaySummary {
+        uint16_t pvWh;           // výroba FVE [Wh]
+        uint16_t loadWh;         // spotřeba domu [Wh]
+        uint16_t gridBuyWh;      // koupeno ze sítě [Wh]
+        uint16_t gridSellWh;     // prodáno do sítě [Wh]
+        uint16_t boilerSolarWh;  // zásobníky ze soláru [Wh]
+        uint16_t boilerGridWh;   // zásobníky ze sítě [Wh]
+        uint8_t  reserved[4];    // zarovnání na 16B
+    };
+    static_assert(sizeof(DaySummary) == 16, "DaySummary must be 16 bytes");
+
+    #define HISTORY_DAYS  7
+
+    // 0 = Výroba, 1 = Spotřeba, 2 = Zásobníky
     static uint8_t _tab = 0;
 
-    // Data pro zobrazení – načtená z FRAM
-    static float _production[7]  = {};
-    static float _consumption[7] = {};
+    // Data pro zobrazení – načtená z FRAM (zatím testovací)
+    static DaySummary _days[HISTORY_DAYS] = {};
 
-    // Zkratky dnů (dnes = index 6, šest dní zpět)
-    // Generováno dynamicky z RTC
-    static char _dayLabels[7][4] = {};
+    // Zkratky dnů
+    static char _dayLabels[HISTORY_DAYS][5] = {};
 
     // ---------------------------------------------------------
-    //  Generuj zkratky dnů (Po, Út, St... nebo Mo, Tu, We...)
+    //  Zkratky dnů
     // ---------------------------------------------------------
     static const char* _dayAbbr(uint8_t wday) {
         // wday: 0=Ne, 1=Po, 2=Út, 3=St, 4=Čt, 5=Pá, 6=So
@@ -55,23 +76,10 @@ namespace HistoryScreen {
     }
 
     // ---------------------------------------------------------
-    //  Načti historii z FRAM
-    // ---------------------------------------------------------
-    void loadFromFRAM() {
-        // TODO: napojit na FM24CL64 driver
-        // Prozatím testovací data
-        float testP[] = { 8.2f, 12.4f, 6.1f, 15.8f, 11.3f, 9.7f, 3.45f };
-        float testC[] = { 5.1f, 7.8f,  4.3f,  9.2f,  6.5f, 5.8f, 2.10f };
-        memcpy(_production,  testP, sizeof(testP));
-        memcpy(_consumption, testC, sizeof(testC));
-    }
-
-    // ---------------------------------------------------------
-    //  Vypočti den v týdnu z data (Zeller's congruence)
+    //  Tomohiko Sakamoto – den v týdnu z data
     //  Vrací: 0=Ne, 1=Po, 2=Út, 3=St, 4=Čt, 5=Pá, 6=So
     // ---------------------------------------------------------
     static uint8_t _calcWeekday(const DateTime& dt) {
-        // Tomohiko Sakamoto algorithm
         static const int8_t t[] = {0,3,2,5,0,3,5,1,4,6,2,4};
         uint16_t y = dt.year;
         uint8_t  m = dt.month;
@@ -85,24 +93,42 @@ namespace HistoryScreen {
     // ---------------------------------------------------------
     static void _buildDayLabels(const DateTime& dt) {
         uint8_t today = _calcWeekday(dt);
-        for (int8_t i = 0; i < 7; i++) {
-            int8_t day = (today - (6 - i) + 7) % 7;
+        for (int8_t i = 0; i < HISTORY_DAYS; i++) {
+            int8_t day = (today - (HISTORY_DAYS - 1 - i) + 7) % 7;
             strncpy(_dayLabels[i], _dayAbbr(day), 3);
             _dayLabels[i][3] = '\0';
         }
-        strncpy(_dayLabels[6], "dnes", 4);
-        _dayLabels[6][3] = '\0'; // zkrat na "dne"
+        // Poslední den = "dnes" (zkráceno na 3 znaky)
+        strncpy(_dayLabels[HISTORY_DAYS - 1], "dne", 4);
+    }
+
+    // ---------------------------------------------------------
+    //  Načti historii z FRAM
+    // ---------------------------------------------------------
+    void loadFromFRAM() {
+        // TODO: napojit na FM24CL64 driver – DaySummary × 7 z FRAM
+        // Prozatím testovací data
+        DaySummary test[HISTORY_DAYS] = {
+            {  8200, 5100, 1200, 4300, 3200,  400, {} },  // den -6
+            { 12400, 7800, 2100, 6700, 5100,  800, {} },  // den -5
+            {  6100, 4300,  900, 2700, 2400,  200, {} },  // den -4
+            { 15800, 9200, 1800, 8400, 6800,  600, {} },  // den -3
+            { 11300, 6500, 1500, 6300, 4900,  500, {} },  // den -2
+            {  9700, 5800, 1100, 5000, 4100,  300, {} },  // den -1
+            {  3450, 2100,  500, 1850, 1200,  100, {} },  // dnes
+        };
+        memcpy(_days, test, sizeof(test));
     }
 
     // ---------------------------------------------------------
     //  Nakresli záložky
     // ---------------------------------------------------------
     static void _drawTabs(const Theme* t) {
-        const char* tabNames[] = { "VYROBA", "SPOTREBA" };
-        uint16_t tabX[] = { 20, 100 };
-        uint16_t tabW[] = { 70,  90 };
+        const char* tabNames[] = { "VYROBA", "SPOTREBA", "ZASOBNIKY" };
+        const uint16_t tabX[]  = { 10, 85, 185 };
+        const uint16_t tabW[]  = { 65, 90, 100 };
 
-        for (uint8_t i = 0; i < 2; i++) {
+        for (uint8_t i = 0; i < 3; i++) {
             bool active = (i == _tab);
             tft.fillRect(tabX[i], CONTENT_Y + 4, tabW[i], 16,
                          active ? t->header : t->bg);
@@ -110,7 +136,6 @@ namespace HistoryScreen {
             tft.setTextColor(active ? t->accent : t->dim);
             tft.setCursor(tabX[i] + 4, CONTENT_Y + 6);
             tft.print(tabNames[i]);
-            // Spodní linka aktivní záložky
             if (active) {
                 tft.drawFastHLine(tabX[i], CONTENT_Y + 20, tabW[i], t->accent);
             }
@@ -118,79 +143,208 @@ namespace HistoryScreen {
     }
 
     // ---------------------------------------------------------
-    //  Nakresli sloupcový graf
+    //  Geometrie grafu – sdílená pro všechny záložky
     // ---------------------------------------------------------
-    static void _drawChart(const Theme* t) {
-        float* data = (_tab == 0) ? _production : _consumption;
+    #define CHART_X      12
+    #define CHART_Y      (CONTENT_Y + 28)
+    #define CHART_W      296
+    #define CHART_H      110
+    #define BAR_W        30
+    #define BAR_GAP      12
+    #define TOTAL_BAR_W  (HISTORY_DAYS * BAR_W + (HISTORY_DAYS - 1) * BAR_GAP)
+    #define BAR_START_X  (CHART_X + (CHART_W - TOTAL_BAR_W) / 2)
 
-        // Najdi maximum pro škálování
+    // ---------------------------------------------------------
+    //  Nakresli jednoduchý sloupcový graf (Výroba / Spotřeba)
+    // ---------------------------------------------------------
+    static void _drawSimpleChart(const Theme* t, const float data[HISTORY_DAYS]) {
+        // Najdi maximum
         float maxVal = 0.1f;
-        for (uint8_t i = 0; i < 7; i++) {
+        for (uint8_t i = 0; i < HISTORY_DAYS; i++) {
             if (data[i] > maxVal) maxVal = data[i];
         }
 
-        // Prostor grafu
-        const int16_t chartX  = 12;
-        const int16_t chartY  = CONTENT_Y + 28;
-        const int16_t chartW  = 296;
-        const int16_t chartH  = 110;
-        const int16_t barW    = 30;
-        const int16_t barGap  = 12;
-        const int16_t totalW  = 7 * barW + 6 * barGap;
-        const int16_t startX  = chartX + (chartW - totalW) / 2;
-
         // Čára základny
-        tft.drawFastHLine(chartX, chartY + chartH, chartW, t->dim);
+        tft.drawFastHLine(CHART_X, CHART_Y + CHART_H, CHART_W, t->dim);
 
-        for (uint8_t i = 0; i < 7; i++) {
-            int16_t bx = startX + i * (barW + barGap);
-            int16_t barH = (int16_t)(data[i] / maxVal * chartH);
+        for (uint8_t i = 0; i < HISTORY_DAYS; i++) {
+            int16_t bx = BAR_START_X + i * (BAR_W + BAR_GAP);
+            int16_t barH = (int16_t)(data[i] / maxVal * CHART_H);
             if (barH < 2) barH = 2;
-            int16_t by = chartY + chartH - barH;
+            int16_t by = CHART_Y + CHART_H - barH;
 
-            // Barva: dnes = cyan, ostatní = solar žlutá @ 70% opacity
-            // Na TFT simulujeme opacity tmavší barvou
-            uint16_t col = (i == 6) ? t->accent : 0xD6A0; // žlutá tmavší
-
-            tft.fillRect(bx, by, barW, barH, col);
+            // Barva: dnes = cyan, ostatní = solar žlutá
+            uint16_t col = (i == HISTORY_DAYS - 1) ? t->accent : 0xD6A0;
+            tft.fillRect(bx, by, BAR_W, barH, col);
 
             // Hodnota nad sloupcem
             char buf[8];
             snprintf(buf, sizeof(buf), "%.1f", data[i]);
             tft.setFont(&fonts::Font2);
-            tft.setTextColor(i == 6 ? t->accent : t->text);
+            tft.setTextColor((i == HISTORY_DAYS - 1) ? t->accent : t->text);
             tft.setTextDatum(bottom_center);
-            tft.drawString(buf, bx + barW / 2, by - 2);
+            tft.drawString(buf, bx + BAR_W / 2, by - 2);
 
             // Zkratka dne pod sloupcem
             tft.setTextColor(t->dim);
             tft.setTextDatum(top_center);
-            tft.drawString(_dayLabels[i], bx + barW / 2, chartY + chartH + 3);
+            tft.drawString(_dayLabels[i], bx + BAR_W / 2, CHART_Y + CHART_H + 3);
         }
         tft.setTextDatum(top_left);
     }
 
     // ---------------------------------------------------------
-    //  Nakresli souhrn (Celkem + Průměr)
+    //  Nakresli dvoubarevný sloupcový graf (Zásobníky)
+    //  Zelená (spodní) = solár, Červená (horní) = síť
+    // ---------------------------------------------------------
+    static void _drawBoilerChart(const Theme* t) {
+        // Data pro graf
+        float solar[HISTORY_DAYS];
+        float grid[HISTORY_DAYS];
+        float total[HISTORY_DAYS];
+        float maxVal = 0.1f;
+
+        for (uint8_t i = 0; i < HISTORY_DAYS; i++) {
+            solar[i] = _days[i].boilerSolarWh / 1000.0f;
+            grid[i]  = _days[i].boilerGridWh  / 1000.0f;
+            total[i] = solar[i] + grid[i];
+            if (total[i] > maxVal) maxVal = total[i];
+        }
+
+        // Čára základny
+        tft.drawFastHLine(CHART_X, CHART_Y + CHART_H, CHART_W, t->dim);
+
+        for (uint8_t i = 0; i < HISTORY_DAYS; i++) {
+            int16_t bx = BAR_START_X + i * (BAR_W + BAR_GAP);
+            int16_t totalH = (int16_t)(total[i] / maxVal * CHART_H);
+            if (totalH < 2) totalH = 2;
+
+            int16_t solarH = (total[i] > 0)
+                ? (int16_t)(solar[i] / total[i] * totalH)
+                : totalH;
+            int16_t gridH = totalH - solarH;
+
+            int16_t byBottom = CHART_Y + CHART_H;
+
+            // Zelená (solár) – spodní část
+            if (solarH > 0) {
+                tft.fillRect(bx, byBottom - solarH, BAR_W, solarH, t->ok);
+            }
+            // Červená (síť) – horní část
+            if (gridH > 0) {
+                tft.fillRect(bx, byBottom - totalH, BAR_W, gridH, t->err);
+            }
+
+            // Hodnota nad sloupcem
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%.1f", total[i]);
+            tft.setFont(&fonts::Font2);
+            tft.setTextColor((i == HISTORY_DAYS - 1) ? t->accent : t->text);
+            tft.setTextDatum(bottom_center);
+            tft.drawString(buf, bx + BAR_W / 2, byBottom - totalH - 2);
+
+            // Zkratka dne pod sloupcem
+            tft.setTextColor(t->dim);
+            tft.setTextDatum(top_center);
+            tft.drawString(_dayLabels[i], bx + BAR_W / 2, CHART_Y + CHART_H + 3);
+        }
+        tft.setTextDatum(top_left);
+    }
+
+    // ---------------------------------------------------------
+    //  Nakresli souhrn pod grafem
     // ---------------------------------------------------------
     static void _drawSummary(const Theme* t) {
-        float* data = (_tab == 0) ? _production : _consumption;
-
-        float total = 0;
-        for (uint8_t i = 0; i < 7; i++) total += data[i];
-        float avg = total / 7.0f;
-
-        char buf[32];
+        char buf[40];
         tft.setFont(&fonts::Font2);
         tft.setTextColor(t->dim);
 
-        snprintf(buf, sizeof(buf), "Celkem: %.1f kWh", total);
-        tft.setCursor(16, FTR_Y - 28);
-        tft.print(buf);
+        if (_tab == 0) {
+            // Výroba
+            float total = 0;
+            for (uint8_t i = 0; i < HISTORY_DAYS; i++)
+                total += _days[i].pvWh / 1000.0f;
+            float avg = total / HISTORY_DAYS;
 
-        snprintf(buf, sizeof(buf), "Prumer: %.1f kWh/den", avg);
-        tft.setCursor(16, FTR_Y - 14);
-        tft.print(buf);
+            snprintf(buf, sizeof(buf), "Celkem: %.1f kWh", total);
+            tft.setCursor(16, FTR_Y - 28);
+            tft.print(buf);
+
+            snprintf(buf, sizeof(buf), "Prumer: %.1f kWh/den", avg);
+            tft.setCursor(16, FTR_Y - 14);
+            tft.print(buf);
+
+        } else if (_tab == 1) {
+            // Spotřeba
+            float total = 0;
+            for (uint8_t i = 0; i < HISTORY_DAYS; i++)
+                total += _days[i].loadWh / 1000.0f;
+            float avg = total / HISTORY_DAYS;
+
+            snprintf(buf, sizeof(buf), "Celkem: %.1f kWh", total);
+            tft.setCursor(16, FTR_Y - 28);
+            tft.print(buf);
+
+            snprintf(buf, sizeof(buf), "Prumer: %.1f kWh/den", avg);
+            tft.setCursor(16, FTR_Y - 14);
+            tft.print(buf);
+
+        } else {
+            // Zásobníky
+            float totalSolar = 0, totalGrid = 0;
+            for (uint8_t i = 0; i < HISTORY_DAYS; i++) {
+                totalSolar += _days[i].boilerSolarWh / 1000.0f;
+                totalGrid  += _days[i].boilerGridWh  / 1000.0f;
+            }
+            float totalAll = totalSolar + totalGrid;
+            float avg = totalAll / HISTORY_DAYS;
+            uint8_t pctSolar = (totalAll > 0)
+                ? (uint8_t)(totalSolar / totalAll * 100.0f + 0.5f)
+                : 0;
+
+            snprintf(buf, sizeof(buf), "Celkem: %.1f kWh  solar: %u%%",
+                totalAll, pctSolar);
+            tft.setCursor(16, FTR_Y - 28);
+            tft.print(buf);
+
+            snprintf(buf, sizeof(buf), "Prumer: %.1f kWh/den", avg);
+            tft.setCursor(16, FTR_Y - 14);
+            tft.print(buf);
+
+            // Legenda
+            tft.fillRect(250, FTR_Y - 28, 8, 8, t->ok);
+            tft.setTextColor(t->dim);
+            tft.setCursor(262, FTR_Y - 28);
+            tft.print("sol");
+
+            tft.fillRect(250, FTR_Y - 14, 8, 8, t->err);
+            tft.setCursor(262, FTR_Y - 14);
+            tft.print("sit");
+        }
+    }
+
+    // ---------------------------------------------------------
+    //  Nakresli graf podle aktivní záložky
+    // ---------------------------------------------------------
+    static void _drawChart(const Theme* t) {
+        if (_tab == 0) {
+            // Výroba
+            float data[HISTORY_DAYS];
+            for (uint8_t i = 0; i < HISTORY_DAYS; i++)
+                data[i] = _days[i].pvWh / 1000.0f;
+            _drawSimpleChart(t, data);
+
+        } else if (_tab == 1) {
+            // Spotřeba
+            float data[HISTORY_DAYS];
+            for (uint8_t i = 0; i < HISTORY_DAYS; i++)
+                data[i] = _days[i].loadWh / 1000.0f;
+            _drawSimpleChart(t, data);
+
+        } else {
+            // Zásobníky – dvoubarevný graf
+            _drawBoilerChart(t);
+        }
     }
 
     // ==========================================================
@@ -203,7 +357,14 @@ namespace HistoryScreen {
 
         tft.fillScreen(t->bg);
         Header::draw(t, dt, apState, staState, invState, alarm);
-        Header::drawFooter(t, d);
+
+        // Spodní lišta – navigace
+        tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->dim);
+        tft.setTextDatum(middle_center);
+        tft.drawString("LEFT/RIGHT zalozka  LEFT zpet", 160, FTR_Y + 13);
+        tft.setTextDatum(top_left);
 
         _buildDayLabels(dt);
         _drawTabs(t);
@@ -221,8 +382,7 @@ namespace HistoryScreen {
         switch (btn) {
             case SW_LEFT:
                 if (_tab == 0) return SCREEN_MENU;
-                _tab = 0;
-                // Překresli obsah bez záhlaví
+                _tab--;
                 tft.fillRect(0, CONTENT_Y, 320, CONTENT_H, t->bg);
                 _drawTabs(t);
                 _drawChart(t);
@@ -230,8 +390,8 @@ namespace HistoryScreen {
                 return SCREEN_NONE;
 
             case SW_RIGHT:
-                if (_tab < 1) {
-                    _tab = 1;
+                if (_tab < 2) {
+                    _tab++;
                     tft.fillRect(0, CONTENT_Y, 320, CONTENT_H, t->bg);
                     _drawTabs(t);
                     _drawChart(t);

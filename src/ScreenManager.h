@@ -34,6 +34,9 @@ enum Screen : uint8_t {
     SCREEN_DISCOVERY    = 10,  // UdP → Řízení → Auto-discovery zásobníků
     SCREEN_BOILER_DETAIL = 11, // UdP → Řízení → Zásobníky → detail bytu
     SCREEN_NETWORK       = 12, // UdP → Network (WiFi STA/AP, NTP, Hostname)
+    SCREEN_SERIAL        = 13, // UdP → Serial (Modbus transport, profil, RTU)
+    SCREEN_INVERTER      = 14, // UdP → Střídač (parametry elektrárny)
+    SCREEN_MQTT          = 15, // UdP → MQTT (odesílání dat na internet)
     SCREEN_NONE         = 0xFF
 };
 

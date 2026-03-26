@@ -36,6 +36,9 @@
 #include "ControlScreen.h"
 #include "BoilerDetailScreen.h"
 #include "NetworkScreen.h"
+#include "SerialScreen.h"
+#include "InverterScreen.h"
+#include "MqttScreen.h"
 
 // =============================================================
 //  Extern reference na globální proměnné z main.cpp
@@ -86,6 +89,15 @@ static void _doSwitch(Screen next) {
             break;
         case SCREEN_NETWORK:
             NetworkScreen::reset();
+            break;
+        case SCREEN_SERIAL:
+            SerialScreen::reset();
+            break;
+        case SCREEN_INVERTER:
+            InverterScreen::reset();
+            break;
+        case SCREEN_MQTT:
+            MqttScreen::reset();
             break;
         default: break;
     }
@@ -143,6 +155,18 @@ static void _drawCurrent() {
             break;
         case SCREEN_NETWORK:
             NetworkScreen::draw(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_SERIAL:
+            SerialScreen::draw(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_INVERTER:
+            InverterScreen::draw(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_MQTT:
+            MqttScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
         default:
@@ -204,6 +228,18 @@ static void _updateCurrent() {
             NetworkScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
+        case SCREEN_SERIAL:
+            SerialScreen::update(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_INVERTER:
+            InverterScreen::update(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_MQTT:
+            MqttScreen::update(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
         default:
             break;
     }
@@ -252,6 +288,15 @@ static void _handleInput(SwButton btn) {
         case SCREEN_NETWORK:
             next = NetworkScreen::handleInput(gTheme, btn);
             break;
+        case SCREEN_SERIAL:
+            next = SerialScreen::handleInput(gTheme, btn);
+            break;
+        case SCREEN_INVERTER:
+            next = InverterScreen::handleInput(gTheme, btn);
+            break;
+        case SCREEN_MQTT:
+            next = MqttScreen::handleInput(gTheme, btn);
+            break;
         default:
             break;
     }
@@ -290,6 +335,9 @@ void uiSetup() {
     // Předej sprite screenům
     ControlScreen::setSprite(&gContentSprite);
     NetworkScreen::setSprite(&gContentSprite);
+    SerialScreen::setSprite(&gContentSprite);
+    InverterScreen::setSprite(&gContentSprite);
+    MqttScreen::setSprite(&gContentSprite);
 
     ScreenManager::replaceTo(SCREEN_MAIN);
     _refreshState();

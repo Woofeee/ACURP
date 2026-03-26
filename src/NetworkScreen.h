@@ -540,7 +540,7 @@ namespace NetworkScreen {
                 break;
             default: break;
         }
-        // TODO: ConfigManager::saveToFram()
+        ConfigManager::saveBlockWifi();
         Serial.printf("[NET] Ulozeno: %s = %s\n",
             _items[idx].label, _items[idx].value);
     }

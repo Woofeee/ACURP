@@ -12,8 +12,7 @@
 //    LEFT     – přejdi na předchozí pozici / zrušit
 //    CENTER   – potvrdit heslo
 //
-//  PIN uložen v FRAM 0x0002 (4 B, plain – bez šifrování,
-//  dostatečná ochrana pro instalatéra)
+//  PIN uložen v FRAM blok 0 (System) přes gConfig.pin[4]
 //  Výchozí PIN: 0000
 // =============================================================
 #pragma once
@@ -27,18 +26,13 @@
 #include "SolarData.h"
 #include "PCF85063A.h"
 
-// FRAM adresa uloženého PINu (4 B)
-#define FRAM_ADDR_PIN   0x0002
-
-// Výchozí PIN
-#define DEFAULT_PIN     { 0, 0, 0, 0 }
+extern Config gConfig;
 
 namespace PasswordScreen {
 
     static uint8_t _entered[4]  = { 0, 0, 0, 0 };
-    static uint8_t _correct[4]  = DEFAULT_PIN;   // načteno z FRAM
-    static uint8_t _pos         = 0;             // aktivní pozice 0–3
-    static uint8_t _attempts    = 0;             // neúspěšné pokusy
+    static uint8_t _pos         = 0;
+    static uint8_t _attempts    = 0;
 
     // Pozice políček na displeji
     #define PIN_BOX_W   40
@@ -48,13 +42,13 @@ namespace PasswordScreen {
     #define PIN_BOX_Y   (CONTENT_Y + 50)
 
     // ---------------------------------------------------------
-    //  Načti PIN z FRAM
+    //  Načti PIN z FRAM (přes gConfig – už načteno v loadFromFram)
     // ---------------------------------------------------------
     void loadFromFRAM() {
-        // TODO: napojit na FM24CL64
-        // fm24.read(FRAM_ADDR_PIN, _correct, 4);
-        uint8_t def[] = DEFAULT_PIN;
-        memcpy(_correct, def, 4);
+        // PIN je už v gConfig.pin[] (načteno ConfigManager::loadFromFram)
+        // Tato funkce existuje pro zpětnou kompatibilitu s uiSetup()
+        Serial.printf("[PWD] PIN: %u%u%u%u\n",
+            gConfig.pin[0], gConfig.pin[1], gConfig.pin[2], gConfig.pin[3]);
     }
 
     // ---------------------------------------------------------
@@ -78,7 +72,7 @@ namespace PasswordScreen {
 
         // Číslice
         char buf[2] = { (char)('0' + _entered[idx]), '\0' };
-        tft.setFont(&fonts::Font7);  // velký font
+        tft.setFont(&fonts::Font7);
         tft.setTextColor(active ? t->accent : t->text);
         tft.setTextDatum(middle_center);
         tft.drawString(buf, x + PIN_BOX_W / 2, y + PIN_BOX_H / 2);
@@ -99,11 +93,11 @@ namespace PasswordScreen {
     }
 
     // ---------------------------------------------------------
-    //  Ověř PIN
+    //  Ověř PIN proti gConfig.pin[]
     // ---------------------------------------------------------
     static bool _checkPin() {
         for (uint8_t i = 0; i < 4; i++) {
-            if (_entered[i] != _correct[i]) return false;
+            if (_entered[i] != gConfig.pin[i]) return false;
         }
         return true;
     }
@@ -119,7 +113,7 @@ namespace PasswordScreen {
         tft.fillScreen(t->bg);
         Header::draw(t, dt, apState, staState, invState, alarm);
 
-        // Spodní lišta – prázdná s nápovědou (bez relé stavů)
+        // Spodní lišta
         tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
         tft.setFont(&fonts::Font2);
         tft.setTextColor(t->dim);
@@ -167,7 +161,7 @@ namespace PasswordScreen {
                 return SCREEN_NONE;
 
             case SW_DOWN:
-                _entered[_pos] = (_entered[_pos] + 9) % 10;  // -1 mod 10
+                _entered[_pos] = (_entered[_pos] + 9) % 10;
                 _drawBox(t, _pos);
                 return SCREEN_NONE;
 
@@ -186,7 +180,6 @@ namespace PasswordScreen {
                     _drawBox(t, _pos);
                     return SCREEN_NONE;
                 }
-                // Na první pozici → zpět
                 return SCREEN_MENU;
 
             case SW_CENTER: {
@@ -199,7 +192,6 @@ namespace PasswordScreen {
                     snprintf(buf, sizeof(buf), "Chybny PIN (%u/3)", _attempts);
                     _drawStatus(t, buf, t->err);
                     if (_attempts >= 3) {
-                        // TODO: timeout / lockout
                         _attempts = 0;
                         return SCREEN_MENU;
                     }

@@ -42,6 +42,39 @@ enum ModbusError : uint8_t {
 };
 
 // =============================================================================
+// Pomocná funkce: sestav UART config z parametrů
+// Vrací SerialConfig hodnotu pro Serial1.begin(baud, config)
+//   dataBits: 7 nebo 8
+//   parity:   0=None, 1=Even, 2=Odd
+//   stopBits: 1 nebo 2
+// =============================================================================
+inline uint32_t buildSerialConfig(
+    uint8_t dataBits, uint8_t parity, uint8_t stopBits)
+{
+    // Výchozí: 8N1
+    // earlephilhower core definuje SERIAL_xYz konstanty
+    // x = datové bity (7/8), Y = parita (N/E/O), z = stop bity (1/2)
+
+    if (dataBits == 7) {
+        if (parity == 1) {  // Even
+            return stopBits == 2 ? SERIAL_7E2 : SERIAL_7E1;
+        } else if (parity == 2) {  // Odd
+            return stopBits == 2 ? SERIAL_7O2 : SERIAL_7O1;
+        } else {  // None
+            return stopBits == 2 ? SERIAL_7N2 : SERIAL_7N1;
+        }
+    } else {  // 8 bitů
+        if (parity == 1) {  // Even
+            return stopBits == 2 ? SERIAL_8E2 : SERIAL_8E1;
+        } else if (parity == 2) {  // Odd
+            return stopBits == 2 ? SERIAL_8O2 : SERIAL_8O1;
+        } else {  // None
+            return stopBits == 2 ? SERIAL_8N2 : SERIAL_8N1;
+        }
+    }
+}
+
+// =============================================================================
 // ModbusClient – abstraktní základ pro RTU i TCP
 // =============================================================================
 class ModbusClient {
@@ -72,17 +105,41 @@ public:
 // =============================================================================
 // ModbusRTUClient – RS485 komunikace přes UART0
 // DE/RE pin přes MCP23017 GPB7 pomocí callbacku
+//
+// Parametry sériové linky:
+//   baudRate  – rychlost (9600, 19200, 38400, 115200)
+//   dataBits  – datové bity (7 nebo 8), výchozí 8
+//   parity    – parita (0=None, 1=Even, 2=Odd), výchozí 0
+//   stopBits  – stop bity (1 nebo 2), výchozí 1
 // =============================================================================
 class ModbusRTUClient : public ModbusClient {
 public:
-    ModbusRTUClient(uint32_t baudRate, ModbusDeReCallback dereCallback = nullptr)
-        : _baudRate(baudRate), _dereCallback(dereCallback) {}
+    ModbusRTUClient(uint32_t baudRate,
+                    ModbusDeReCallback dereCallback = nullptr,
+                    uint8_t dataBits = 8,
+                    uint8_t parity   = 0,
+                    uint8_t stopBits = 1)
+        : _baudRate(baudRate)
+        , _dereCallback(dereCallback)
+        , _dataBits(dataBits)
+        , _parity(parity)
+        , _stopBits(stopBits)
+    {}
 
     bool begin() override {
         // earlephilhower SerialUART: nastav piny pred begin()
         MODBUS_UART.setTX(MODBUS_TX_PIN);
         MODBUS_UART.setRX(MODBUS_RX_PIN);
-        MODBUS_UART.begin(_baudRate);
+
+        // Sestav UART config z parametrů
+        auto cfg = buildSerialConfig(_dataBits, _parity, _stopBits);
+        MODBUS_UART.begin(_baudRate, cfg);
+
+        Serial.printf("[RTU] UART init: %lu baud, %u%c%u\n",
+            _baudRate, _dataBits,
+            _parity == 0 ? 'N' : (_parity == 1 ? 'E' : 'O'),
+            _stopBits);
+
         // Krátká pauza po inicializaci
         delay(50);
         return true;
@@ -177,6 +234,9 @@ public:
 private:
     uint32_t           _baudRate;
     ModbusDeReCallback _dereCallback;
+    uint8_t            _dataBits;
+    uint8_t            _parity;
+    uint8_t            _stopBits;
 
     void _setDE(bool transmit) {
         if (_dereCallback) _dereCallback(transmit);

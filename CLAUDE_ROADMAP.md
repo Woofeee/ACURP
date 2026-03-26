@@ -6,20 +6,33 @@
 
 ## Přehled priorit
 
-| Priorita | Oblast                        | Odhad náročnosti |
-|----------|-------------------------------|------------------|
-| 🔴 HIGH  | FRAM mapa – přepracování      | střední          |
-| 🔴 HIGH  | FRAM persistence – dokončení  | střední          |
-| 🔴 HIGH  | Modbus TCP test na HW         | nízká            |
-| 🟡 MED   | BoilerController – dokončení  | střední          |
-| 🟡 MED   | Web server + rozhraní         | vysoká           |
-| 🟡 MED   | MQTT / InfluxDB logging       | střední          |
-| 🟡 MED   | RTC kalibrace z NTP           | nízká            |
-| 🟡 MED   | WiFi AP dual mode             | střední          |
-| 🟢 LOW   | Více témat displeje           | nízká            |
-| 🟢 LOW   | AlarmManager                  | střední          |
-| 🟢 LOW   | LogoScreen PNG                | nízká            |
-| 🟢 LOW   | Sermatec Modbus profil        | střední          |
+| Priorita | Oblast                        | Odhad náročnosti | Stav      |
+|----------|-------------------------------|------------------|-----------|
+| 🔴 HIGH  | FRAM mapa – přepracování      | střední          |           |
+| 🔴 HIGH  | FRAM persistence – dokončení  | střední          |           |
+| 🔴 HIGH  | Modbus TCP test na HW         | nízká            |           |
+| 🟡 MED   | BoilerController – dokončení  | střední          |           |
+| 🟡 MED   | Web server + rozhraní         | vysoká           |           |
+| 🟡 MED   | MQTT klient (runtime)         | střední          |           |
+| 🟡 MED   | SSR řízení výkonu (burst)     | střední          |           |
+| 🟡 MED   | RTC kalibrace z NTP           | nízká            |           |
+| 🟡 MED   | WiFi AP dual mode             | střední          |           |
+| 🟢 LOW   | Více témat displeje           | nízká            |           |
+| 🟢 LOW   | AlarmManager                  | střední          |           |
+| 🟢 LOW   | LogoScreen PNG                | nízká            |           |
+| 🟢 LOW   | Sermatec Modbus profil        | střední          |           |
+
+### Hotovo ✅ (tato session)
+
+- SerialScreen – Modbus konfigurace (TCP/RTU, profil, IP editor, restart dialog)
+- InverterScreen – parametry elektrárny (FVE, baterie, provozní limity)
+- MqttScreen – MQTT konfigurace (broker, auth, topic, interval)
+- HistoryScreen – přepracován: 3 záložky (Výroba, Spotřeba, Zásobníky), DaySummary struct
+- Header – footer respektuje numBoilers, kostičky vycentrované
+- DiagnosticScreen – navigační lišta místo kostiček
+- UdP menu – všech 5 položek aktivních
+- Config.h – RTU parametry (dataBits, parity, stopBits), elektrárna, MQTT
+- ModbusClient.h – RTU přijímá parametry sériové linky
 
 ---
 
@@ -34,7 +47,11 @@ před implementací FRAM persistence pro zásobníky.
 - BoilerSystem (~60B)
 - BoilerRuntime × 10 (~15B každý = 150B)
 - BoilerDayStats × 10 × 14 dní (8B × 140 = 1120B, cyklický buffer)
+- DaySummary × 7 dní (16B × 7 = 112B)
 - HDO konfigurace a history spínání distributora
+- Elektrárna konfigurace (pvPowerKwp10, batteryKwh10, ...)
+- MQTT konfigurace (broker, user, pass, topic, interval)
+- RTU parametry (dataBits, parity, stopBits)
 
 ### Principy návrhu
 - Logické bloky pohromadě, zarovnané adresy
@@ -49,7 +66,7 @@ před implementací FRAM persistence pro zásobníky.
 
 0x0100–0x02FF  Config WiFi + NTP + RTC offset (512B)
 
-0x0300–0x04FF  Config Modbus/Inverter (512B)
+0x0300–0x04FF  Config Modbus/Inverter + RTU parametry (512B)
 
 0x0500–0x06FF  BoilerSystem konfigurace (512B)
 
@@ -60,9 +77,17 @@ před implementací FRAM persistence pro zásobníky.
 0x0A00–0x0EFF  BoilerDayStats cyklický buffer
                14 dní × 10 zásobníků × 8B = 1120B
 
-0x0F00–0x12FF  HDO monitor / history spínání (1024B)
+0x0F00–0x0FFF  DaySummary × 7 dní × 16B = 112B (256B blok)
 
-0x1300–0x1FFF  Rezerva (~3.3 KB)
+0x1000–0x10FF  Elektrárna konfigurace (256B)
+
+0x1100–0x11FF  MQTT konfigurace (256B)
+
+0x1200–0x13FF  SSR konfigurace (budoucnost, 512B)
+
+0x1400–0x17FF  HDO monitor / history spínání (1024B)
+
+0x1800–0x1FFF  Rezerva (~2 KB)
 ```
 
 ---
@@ -72,14 +97,17 @@ před implementací FRAM persistence pro zásobníky.
 Po přepracování mapy implementovat:
 
 - `ConfigManager::loadFromFram()` – WiFi, Modbus, téma, RTC offset,
-  BoilerSystem, BoilerConfig[], BoilerRuntime[]
+  BoilerSystem, BoilerConfig[], BoilerRuntime[], elektrárna, MQTT, RTU
 - `ConfigManager::saveToFram()` – kompletní uložení
 - Magic byte detekce prvního spuštění
 - SettingScreen – uložení Téma/Timeout/Backlight/NTP
 - BoilerDetailScreen – uložení per zásobník konfigurace
 - DiscoveryScreen – uložení výsledků Discovery
-- HistoryScreen – denní součty výroby/spotřeby
+- HistoryScreen – DaySummary[] do FRAM
 - PasswordScreen – load/save PIN
+- SerialScreen – uložení Modbus konfigurace
+- InverterScreen – uložení parametrů elektrárny
+- MqttScreen – uložení MQTT konfigurace
 
 ---
 
@@ -140,37 +168,89 @@ Napojit IO1–IO10 na `gPulse.getEnergyWh(i)` nebo živý stav IRQ pinu.
 HTTP server přístupný z prohlížeče – live data + konfigurace
 bez nutnosti ovládání přes displej.
 
-**Potřebné prostředky:**
-- Knihovna: `WebServer` z earlephilhower core
+**Architektura:**
+- Synchronní `WebServer` z earlephilhower core
 - LittleFS pro statické soubory (HTML, CSS, JS)
-- REST API:
-  - `GET /api/data` → JSON SolarData + stav zásobníků
-  - `GET /api/config` → JSON konfigurace
-  - `POST /api/config` → uložit do FRAM
-  - `GET /api/boilers` → stav + statistiky zásobníků
-  - `GET /api/hdo` → harmonogram HDO
-- WebServer jako FreeRTOS task na Core 0
-- Podmenu UdP → Network pro WiFi konfiguraci
+- `server.handleClient()` v loop() na Core 0
+- JS polluje REST API každé 2–3s
+
+**REST API:**
+- `GET /` → index.html z LittleFS
+- `GET /api/data` → JSON SolarData + stav zásobníků
+- `GET /api/config` → JSON konfigurace
+- `POST /api/config` → uložit do FRAM (budoucnost)
+- `GET /api/boilers` → stav + statistiky zásobníků
+- `GET /api/history` → DaySummary[7]
+
+**Soubory:**
+- `WebServerManager.h` – setup, routes, JSON builder
+- `data/index.html` – SPA dashboard
+- `data/style.css` – tmavý motiv
+- `data/app.js` – fetch, polling, DOM update
+
+**Fáze 1:** Readonly dashboard (monitoring)
+**Fáze 2:** POST endpointy pro konfiguraci
 
 ---
 
-## 🟡 MQTT / InfluxDB logging
+## 🟡 MQTT klient (runtime)
 
-Odesílá data na internet pro logování a vizualizaci (Grafana, HA).
+Konfigurace je hotová (MqttScreen), zbývá runtime klient.
 
-> **Pravidlo projektu:** Logování VŽDY na internet, nikdy lokálně.
+**Knihovna:** PubSubClient (jednoduchá, ověřená na Pico)
 
-**Data (každých N sekund, výchozí 60s):**
+**Data odesílaná každých N sekund (mqttIntervalSec):**
 - powerPV, powerGrid, powerBattery, powerLoad, soc
 - phaseL1/L2/L3
 - energyPvToday, energyGridToday, energySoldToday
 - relayOn[10], boilerState[10]
-- apartmentWh[10]
 - Denní statistiky zásobníků
 
-**Konfigurace (FRAM):**
-- MQTT: broker IP, port, topic prefix, interval
-- InfluxDB: URL, token, bucket, org
+**Implementace:**
+- `MqttManager.h` – PubSubClient wrapper, reconnect, publish
+- Volat z loop() na Core 0
+- Podmíněná kompilace pokud mqttEn == false → nic nedělej
+
+---
+
+## 🟡 SSR řízení výkonu (burst-mode)
+
+Plynulá regulace výkonu střídavé zátěže přes SSR moduly
+se spínáním v nule (zero-cross). Burst-mode PWM – celé půlvlny.
+
+### Hardware
+- 3× SSR modul (typ SSR-40DA nebo podobný)
+- Řídicí vstup: 3–32V DC, GPIO z Pica přes optočlen
+- GPIO 18, 19, 20 (volné po odstranění PulseCounter)
+- PWM perioda 1–10s, duty cycle 0–100%
+- Spínání v nule → žádné EMI problémy
+
+### Konfigurace (SsrConfig)
+```cpp
+struct SsrConfig {
+    uint8_t  gpio;           // GPIO pin (18/19/20)
+    uint8_t  phase;          // fáze: 1=L1, 2=L2, 3=L3
+    uint16_t maxPowerW;      // max výkon zátěže [W]
+    bool     enabled;
+    uint16_t pwmPeriodMs;    // perioda PWM [ms], výchozí 2000
+    char     label[16];      // popis, např. "Bojler chodba"
+};
+```
+
+### Řídicí logika – priorita
+1. SSR plynule reguluje přebytek (0–100% výkonu) – jemnější
+2. Když SSR nestíhá (přebytek > kapacita SSR) → zapni on/off zásobník
+3. Když přebytek klesne → nejdřív vypni zásobník, pak sniž SSR
+
+### Softwarové požadavky
+- `SsrController.h` – výpočet duty cycle z přebytku na fázi, HW PWM
+- Rozšíření BoilerController o koordinaci s SSR
+- Nový screen v UdP pro konfiguraci SSR
+- RP2350 má HW PWM slice → žádné zatížení CPU
+- FRAM: 3 × ~48B konfigurace (blok 0x1200)
+
+### Odhad náročnosti
+Střední – HW PWM je jednoduchý, složitější je koordinace s on/off logikou.
 
 ---
 
@@ -190,7 +270,7 @@ Odesílá data na internet pro logování a vizualizaci (Grafana, HA).
 - `WiFi.mode(WIFI_AP_STA)`
 - `WiFi.softAP(ssid, pass, channel)`
 - Boot screen: zobrazit obě IP
-- Podmenu UdP → Network pro konfiguraci
+- NetworkScreen již má AP konfiguraci hotovou
 
 ---
 
@@ -238,16 +318,16 @@ Napojit na DiagnosticScreen záložka Alarmy.
 
 - Čeká na dokumentaci registrů Sermatec SMT-10K-TL
 - Doplnit `SERMATEC_REGS[]` v InverterTypes.h
-- Podmenu UdP → Střídač pro výběr profilu
+- SerialScreen → výběr profilu již funkční
 
 ---
 
-## 🔵 Podmenu UdP – dlouhodobý výhled
+## 🔵 Podmenu UdP – stav
 
-| Podmenu  | Co řídí                                        | Náročnost |
+| Podmenu  | Co řídí                                        | Stav      |
 |----------|------------------------------------------------|-----------|
 | Řízení   | BoilerSystem, Discovery, detail zásobníků      | hotovo ✅  |
-| Serial   | Modbus transport, slave ID, baud, IP           | nízká     |
-| Network  | WiFi STA/AP, statická IP, DNS                  | střední   |
-| MQTT     | Broker, port, topic, interval                  | nízká     |
-| Střídač  | Výběr profilu, slave ID, IP, port              | nízká     |
+| Serial   | Modbus transport, profil, RTU/TCP, IP          | hotovo ✅  |
+| Network  | WiFi STA/AP, NTP, Hostname                     | hotovo ✅  |
+| MQTT     | Broker, port, auth, topic, interval            | hotovo ✅  |
+| Střídač  | FVE, baterie, provozní limity                  | hotovo ✅  |

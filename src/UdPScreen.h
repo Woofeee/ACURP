@@ -3,8 +3,8 @@
 //
 //  Položky:
 //    Rizeni    → SCREEN_CONTROL (BoilerController konfigurace + Discovery)
-//    Serial    → (future) SerialConfigScreen
-//    Network   → (future) NetworkConfigScreen
+//    Serial    → SCREEN_SERIAL (Modbus transport, profil, RTU)
+//    Network   → SCREEN_NETWORK (WiFi STA/AP, NTP, Hostname)
 //    MQTT      → (future) MqttConfigScreen
 //    Stridac   → (future) InverterConfigScreen
 //
@@ -32,10 +32,10 @@ namespace UdPScreen {
 
     static const UdPItem _items[] = {
         { "Rizeni",  "boilery, discovery", SCREEN_CONTROL,  true  },
-        { "Serial",  "Modbus, RS485",      SCREEN_NONE,     false },
+        { "Serial",  "Modbus, RS485",      SCREEN_SERIAL,   true  },
         { "Network", "WiFi, IP, NTP",      SCREEN_NETWORK,  true  },
-        { "MQTT",    "broker, topic",      SCREEN_NONE,     false },
-        { "Stridac", "typ, adresa",        SCREEN_NONE,     false },
+        { "MQTT",    "broker, topic",      SCREEN_MQTT,     true  },
+        { "Stridac", "FVE, baterie",       SCREEN_INVERTER, true  },
     };
     static const uint8_t _itemCount = sizeof(_items) / sizeof(_items[0]);
 
