@@ -118,7 +118,14 @@ namespace PasswordScreen {
 
         tft.fillScreen(t->bg);
         Header::draw(t, dt, apState, staState, invState, alarm);
-        Header::drawFooter(t, d);
+
+        // Spodní lišta – prázdná s nápovědou (bez relé stavů)
+        tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->dim);
+        tft.setTextDatum(middle_center);
+        tft.drawString("UP/DN cislo  RIGHT dalsi  CENTER ok", 160, FTR_Y + 13);
+        tft.setTextDatum(top_left);
 
         // Nadpis
         tft.setFont(&fonts::Font4);
@@ -138,13 +145,6 @@ namespace PasswordScreen {
         for (uint8_t i = 0; i < 4; i++) {
             _drawBox(t, i);
         }
-
-        // Nápověda
-        tft.setFont(&fonts::Font2);
-        tft.setTextColor(t->dim);
-        tft.setTextDatum(top_center);
-        tft.drawString("UP/DN cislo  RIGHT dalsi  CENTER ok", 160, PIN_BOX_Y + PIN_BOX_H + 12);
-        tft.setTextDatum(top_left);
 
         if (_attempts > 0) {
             char buf[32];

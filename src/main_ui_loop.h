@@ -35,6 +35,7 @@
 #include "DiscoveryScreen.h"
 #include "ControlScreen.h"
 #include "BoilerDetailScreen.h"
+#include "NetworkScreen.h"
 
 // =============================================================
 //  Extern reference na globální proměnné z main.cpp
@@ -57,6 +58,13 @@ static uint8_t gDotSTA = DOT_OFF;
 static uint8_t gDotINV = DOT_OFF;
 
 // =============================================================
+//  Sdílený sprite pro obsah screenů (320 × CONTENT_H px = 117 KB)
+//  Alokuje se jednou v uiSetup(). Screeny si ho půjčují přes
+//  gContentSprite – nikdy není v paměti víc než jeden.
+// =============================================================
+static LGFX_Sprite gContentSprite(&tft);
+
+// =============================================================
 //  Přepni screen + volej reset() pokud existuje
 // =============================================================
 static void _doSwitch(Screen next) {
@@ -75,6 +83,9 @@ static void _doSwitch(Screen next) {
         case SCREEN_BOILER_DETAIL:
             BoilerDetailScreen::reset();
             BoilerDetailScreen::begin(0);  // začni od bytu 1
+            break;
+        case SCREEN_NETWORK:
+            NetworkScreen::reset();
             break;
         default: break;
     }
@@ -128,6 +139,10 @@ static void _drawCurrent() {
             break;
         case SCREEN_BOILER_DETAIL:
             BoilerDetailScreen::draw(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
+        case SCREEN_NETWORK:
+            NetworkScreen::draw(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
         default:
@@ -185,6 +200,10 @@ static void _updateCurrent() {
             BoilerDetailScreen::update(gTheme, gUI_dt,
                 gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
             break;
+        case SCREEN_NETWORK:
+            NetworkScreen::update(gTheme, gUI_dt,
+                gDotAP, gDotSTA, gDotINV, gAlarm, gUI_data);
+            break;
         default:
             break;
     }
@@ -230,6 +249,9 @@ static void _handleInput(SwButton btn) {
         case SCREEN_BOILER_DETAIL:
             next = BoilerDetailScreen::handleInput(gTheme, btn);
             break;
+        case SCREEN_NETWORK:
+            next = NetworkScreen::handleInput(gTheme, btn);
+            break;
         default:
             break;
     }
@@ -258,6 +280,16 @@ static void _refreshState() {
 void uiSetup() {
     PasswordScreen::loadFromFRAM();
     HistoryScreen::loadFromFRAM();
+
+    // Alokuj sdílený sprite pro obsah screenů
+    void* ok = gContentSprite.createSprite(320, CONTENT_H);
+    Serial.printf("[UI] content sprite alloc %s (%u KB)\n",
+        ok ? "OK" : "FAIL",
+        (unsigned)(320 * CONTENT_H * 2 / 1024));
+
+    // Předej sprite screenům
+    ControlScreen::setSprite(&gContentSprite);
+    NetworkScreen::setSprite(&gContentSprite);
 
     ScreenManager::replaceTo(SCREEN_MAIN);
     _refreshState();

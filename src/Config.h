@@ -45,12 +45,17 @@ struct Config {
 
     // --- WiFi AP (přístupový bod) ---
     bool     wifiApEn           = false;
-    char     wifiApSsid[20]     = "SolarHMI";
-    char     wifiApPass[16]     = "solarHMI123";
+    char     wifiApSsid[20]     = "ACU-RP";
+    char     wifiApPass[16]     = "10203040";
     uint8_t  wifiApChannel      = 6;
     bool     wifiApHidden       = false;
     uint8_t  wifiApIp[4]        = {192,168,4,1};
     uint8_t  wifiApMask[4]      = {255,255,255,0};
+    uint8_t  wifiApDhcpStart[4] = {192,168,4,2};   // rozsah DHCP od
+    uint8_t  wifiApDhcpEnd[4]   = {192,168,4,10};  // rozsah DHCP do
+
+    // --- Hostname ---
+    char     hostname[24]       = "ACU-RP";         // mDNS: ACU-RP.local
 
     // --- NTP ---
     bool     ntpEn              = true;

@@ -11,6 +11,14 @@
 //    RIGHT    – přejdi na Discovery (jen na položce Discovery)
 //
 //  Sekce Discovery → přepne na SCREEN_DISCOVERY
+//
+//  Geometrie:
+//    CONTENT_Y = 26, FTR_Y = 214 → CONTENT_H = 188 px
+//    CTRL_START_Y = CONTENT_Y + 4 = 30
+//    Každý řádek: CTRL_ROW_H = 26 px
+//    Každá sekce hlavička: CTRL_SEC_H = 16 px
+//    CTRL_VISIBLE = 6 řádků → max výška obsahu = 6×26 + sekcí×16
+//    _drawAllItems kreslí pouze do FTR_Y – žádný přesah do lišty
 // =============================================================
 #pragma once
 #include <Arduino.h>
@@ -117,6 +125,10 @@ namespace ControlScreen {
     static uint8_t _cursor       = 0;
     static uint8_t _scrollOffset = 0;
     static bool    _editing      = false;
+
+    // Sdílený sprite z main_ui_loop – nastav přes setSprite()
+    static LGFX_Sprite* _spr = nullptr;
+    static void setSprite(LGFX_Sprite* s) { _spr = s; }
 
     // ----------------------------------------------------------
     //  Načti hodnoty z gBoilerSys do _items[]
@@ -430,94 +442,128 @@ namespace ControlScreen {
 
     // ----------------------------------------------------------
     //  Kreslení položky
+    //  Vrací skutečnou výšku nakreslené položky (sekce + řádek).
+    //  Nenakreslí nic pokud by řádek přesáhl FTR_Y.
     // ----------------------------------------------------------
-    static void _drawItemAt(const Theme* t, uint8_t idx, int16_t y) {
-        CtrlItem& item   = _items[idx];
-        bool      active  = (idx == _cursor);
-        bool      editing = (active && _editing);
-        bool      isDisc  = (idx == ITEM_DISCOVERY);
+
+
+    static int16_t _drawItemAt(const Theme* t, uint8_t idx, int16_t y) {
+        CtrlItem& item    = _items[idx];
+        bool       active   = (idx == _cursor);
+        bool       editing  = (active && _editing);
+        bool      isLink  = (idx == ITEM_DISCOVERY || idx == ITEM_BOILERS_LIST);
+        int16_t    drawn    = 0;
+        LovyanGFX* dc       = _spr ? (LovyanGFX*)_spr : (LovyanGFX*)&tft;
+        int16_t    sy       = _spr ? y - CONTENT_Y : y;
 
         // Sekce header
         if (item.section != nullptr) {
-            tft.fillRect(0, y, 320, CTRL_SEC_H, t->bg);
-            tft.setFont(&fonts::Font2);
-            tft.setTextColor(t->dim);
-            tft.setCursor(16, y);
-            tft.print(item.section);
-            y += 14;
-            tft.drawFastHLine(16, y, 288, t->dim);
-            y += 2;
+            if (y + CTRL_SEC_H > FTR_Y) return 0;
+            dc->fillRect(0, sy, 320, CTRL_SEC_H, t->bg);
+            dc->setFont(&fonts::Font2);
+            dc->setTextColor(t->dim);
+            dc->setCursor(16, sy);
+            dc->print(item.section);
+            sy += 14;
+            dc->drawFastHLine(16, sy, 288, t->dim);
+            sy += 2;
+            drawn += CTRL_SEC_H;
         }
+
+        if (y + drawn + CTRL_ROW_H > FTR_Y) return drawn;
 
         // Pozadí řádku
         if (active) {
-            tft.fillRect(8, y, 304, CTRL_ROW_H, t->header);
-            tft.fillRect(8, y, 3,   CTRL_ROW_H, t->accent);
+            dc->fillRect(8, sy, 304, CTRL_ROW_H, t->header);
+            dc->fillRect(8, sy, 3,   CTRL_ROW_H, t->accent);
         } else {
-            tft.fillRect(8, y, 304, CTRL_ROW_H, t->bg);
+            dc->fillRect(8, sy, 304, CTRL_ROW_H, t->bg);
         }
 
         // Label
-        tft.setFont(&fonts::Font2);
-        tft.setTextColor(active ? t->accent : t->text);
-        tft.setCursor(20, y + 7);
-        tft.print(item.label);
+        dc->setFont(&fonts::Font2);
+        dc->setTextColor(active ? t->accent : t->text);
+        dc->setCursor(20, sy + 7);
+        dc->print(item.label);
 
-        // Hodnota nebo šipka (Discovery)
-        if (isDisc) {
-            tft.setTextColor(active ? t->accent : t->dim);
-            tft.setTextDatum(middle_right);
-            tft.drawString(">>>", 308, y + 12);
-            tft.setTextDatum(top_left);
+        // Hodnota nebo šipka (Discovery / Zásobníky)
+        if (isLink) {
+            dc->setTextColor(active ? t->accent : t->dim);
+            dc->setTextDatum(middle_right);
+            dc->drawString(">>>", 308, sy + 12);
+            dc->setTextDatum(top_left);
         } else {
-            tft.setTextColor(editing ? t->accent : t->text);
-            tft.setTextDatum(middle_right);
-            tft.drawString(item.value, 308, y + 12);
-            tft.setTextDatum(top_left);
+            dc->setTextColor(editing ? t->accent : t->text);
+            dc->setTextDatum(middle_right);
+            dc->drawString(item.value, 308, sy + 12);
+            dc->setTextDatum(top_left);
         }
+
+        drawn += CTRL_ROW_H;
+        return drawn;
     }
 
     // ----------------------------------------------------------
-    //  Překresli všechny viditelné položky
+    //  Překresli všechny viditelné položky.
+    //  Kreslíme od _scrollOffset dokud _drawItemAt nenarazí na FTR_Y.
     // ----------------------------------------------------------
     static void _drawAllItems(const Theme* t) {
-        tft.fillRect(0, CONTENT_Y, 320, CONTENT_H, t->bg);
-        int16_t y   = CTRL_START_Y;
-        uint8_t end = min((uint8_t)ITEM_COUNT,
-                          (uint8_t)(_scrollOffset + CTRL_VISIBLE));
-        for (uint8_t i = _scrollOffset; i < end; i++) {
-            _drawItemAt(t, i, y);
-            if (_items[i].section != nullptr) y += CTRL_SEC_H;
-            y += CTRL_ROW_H;
+        if (_spr) { _spr->fillScreen(t->bg); }
+        else { tft.fillRect(0, CONTENT_Y, 320, CONTENT_H, t->bg); }
+        int16_t y = CTRL_START_Y;
+        for (uint8_t i = _scrollOffset; i < ITEM_COUNT; i++) {
+            int16_t h = _drawItemAt(t, i, y);
+            if (h == 0) break;  // FTR_Y dosaženo – stop
+            y += h;
         }
+        if (_spr) { _spr->pushSprite(0, CONTENT_Y); }
     }
 
     // ----------------------------------------------------------
-    //  Překresli jednu položku (najdi Y)
+    //  Pomocná: Y pozice kde _drawItemAt začne kreslit položku idx
+    //  (simuluje stejnou logiku jako _drawAllItems, bez kreslení)
     // ----------------------------------------------------------
-    static void _drawItem(const Theme* t, uint8_t idx) {
-        if (idx < _scrollOffset || idx >= _scrollOffset + CTRL_VISIBLE) return;
+    static int16_t _itemY(uint8_t idx) {
         int16_t y = CTRL_START_Y;
         for (uint8_t i = _scrollOffset; i < idx; i++) {
             if (_items[i].section != nullptr) y += CTRL_SEC_H;
             y += CTRL_ROW_H;
         }
-        _drawItemAt(t, idx, y);
+        return y;
     }
 
     // ----------------------------------------------------------
-    //  Scroll
+    //  Překresli jednu položku (najdi Y pixelově)
+    // ----------------------------------------------------------
+    static void _drawItem(const Theme* t, uint8_t idx) {
+        _drawAllItems(t);
+    }
+
+    // ----------------------------------------------------------
+    //  Scroll – pixelový přístup
+    //  Zajistí že kurzor je fyzicky viditelný mezi CTRL_START_Y a FTR_Y.
     // ----------------------------------------------------------
     static bool _ensureVisible() {
+        // Scroll nahoru – kurzor je nad offsetem
         if (_cursor < _scrollOffset) {
             _scrollOffset = _cursor;
             return true;
         }
-        if (_cursor >= _scrollOffset + CTRL_VISIBLE) {
-            _scrollOffset = _cursor - CTRL_VISIBLE + 1;
-            return true;
+
+        // Scroll dolů – posouvej offset dokud se kurzor celý vejde nad FTR_Y.
+        // _itemY počítá Y kde začíná položka idx (bez vlastní sekce).
+        // _drawItemAt pak nakreslí sekci (CTRL_SEC_H) + řádek (CTRL_ROW_H).
+        // Spodní hrana kurzoru = _itemY + vlastní_sekce + CTRL_ROW_H.
+        bool changed = false;
+        while (_scrollOffset < _cursor) {
+            int16_t y      = _itemY(_cursor);
+            int16_t secH   = (_items[_cursor].section != nullptr) ? CTRL_SEC_H : 0;
+            int16_t bottom = y + secH + CTRL_ROW_H;
+            if (bottom <= FTR_Y) break;   // vejde se → hotovo
+            _scrollOffset++;
+            changed = true;
         }
-        return false;
+        return changed;
     }
 
     // ==========================================================
@@ -530,12 +576,16 @@ namespace ControlScreen {
 
         tft.fillScreen(t->bg);
         Header::draw(t, dt, apState, staState, invState, alarm);
+
+        // Spodní lišta – navigace (stejná jako SettingScreen)
         tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
         tft.setFont(&fonts::Font2);
         tft.setTextColor(t->dim);
         tft.setTextDatum(middle_center);
         tft.drawString("UP/DN  CENTER edit  LEFT zpet", 160, FTR_Y + 13);
         tft.setTextDatum(top_left);
+
+        _loadFromConfig();
         _drawAllItems(t);
     }
 
@@ -577,25 +627,17 @@ namespace ControlScreen {
         switch (btn) {
             case SW_UP:
                 if (_cursor > 0) {
-                    uint8_t prev = _cursor--;
-                    if (_ensureVisible()) {
-                        _drawAllItems(t);
-                    } else {
-                        _drawItem(t, prev);
-                        _drawItem(t, _cursor);
-                    }
+                    _cursor--;
+                    _ensureVisible();
+                    _drawAllItems(t);
                 }
                 return SCREEN_NONE;
 
             case SW_DOWN:
                 if (_cursor < ITEM_COUNT - 1) {
-                    uint8_t prev = _cursor++;
-                    if (_ensureVisible()) {
-                        _drawAllItems(t);
-                    } else {
-                        _drawItem(t, prev);
-                        _drawItem(t, _cursor);
-                    }
+                    _cursor++;
+                    _ensureVisible();
+                    _drawAllItems(t);
                 }
                 return SCREEN_NONE;
 

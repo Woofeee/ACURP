@@ -33,6 +33,7 @@ enum Screen : uint8_t {
     SCREEN_CONTROL      = 9,   // UdP → Řízení (BoilerSystem konfigurace)
     SCREEN_DISCOVERY    = 10,  // UdP → Řízení → Auto-discovery zásobníků
     SCREEN_BOILER_DETAIL = 11, // UdP → Řízení → Zásobníky → detail bytu
+    SCREEN_NETWORK       = 12, // UdP → Network (WiFi STA/AP, NTP, Hostname)
     SCREEN_NONE         = 0xFF
 };
 

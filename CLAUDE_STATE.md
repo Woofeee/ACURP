@@ -33,10 +33,12 @@
 - DiagnosticScreen – 3 záložky (I/O, HW Status, Alarmy)
 - SettingScreen – scroll, inline editace data/času, zápis do RTC, NTP resync z UI
 - PasswordScreen – 4-místný PIN, 3 pokusy, přechod na UdPScreen
-- UdPScreen – menu Instalace (Řízení aktivní, ostatní brzy)
+- UdPScreen – menu Instalace (Řízení + Network aktivní, ostatní brzy)
 - ControlScreen – konfigurace BoilerSystem (20 položek, 5 sekcí)
 - DiscoveryScreen – auto-discovery zásobníků, statistické měření, progress bar
-- BoilerDetailScreen – per zásobník: label, enable, allowedGridW, čas. okno
+- BoilerDetailScreen – per zásobník: label (fullscreen editor), enable, allowedGridW, čas. okno
+- NetworkScreen – WiFi STA/AP, NTP, Hostname; fullscreen textový editor (A–Z, a–z, 0–9, spec. znaky)
+- UdPScreen – Network aktivní → SCREEN_NETWORK
 
 ### Modbus
 - ModbusRTUClient – FC03/FC06, CRC-16, DE/RE callback
@@ -45,6 +47,10 @@
 - Solinteg profil – L1/L2/L3 z reálných registrů (10994/10996/10998)
 - SolarData – sdílená struktura Core 0 ↔ Core 1, thread-safe mutex
 - Python simulátor – TCP + RTU, GUI s presety a dynamic simulací
+
+### Config
+- Config.h – přidána pole: wifiApDhcpStart[4], wifiApDhcpEnd[4], hostname[24] = "ACU-RP"
+- ScreenManager.h – přidán SCREEN_NETWORK = 12
 
 ### Řídicí logika zásobníků
 - BoilerConfig.h – BoilerState (8 stavů vč. BOILER_SLOT_DONE), HdoMode (3 režimy),
@@ -85,6 +91,7 @@
 - HistoryScreen::loadFromFRAM() – používá testovací data
 - PasswordScreen::loadFromFRAM() – PIN vždy výchozí 0000
 - SettingScreen – Téma/Timeout/Backlight/NTP se neukládají do FRAM
+- NetworkScreen – WiFi/NTP/Hostname se neukládají do FRAM (TODO po přepracování FRAM mapy)
 
 ### DiagnosticScreen
 - I/O záložka: pulzní vstupy IO1–IO10 jako placeholder false
@@ -106,6 +113,7 @@
 - [ ] HistoryScreen napojit na FM24CL64 – denní součty do FRAM
 - [ ] PasswordScreen napojit na FM24CL64 – load/save PIN
 - [ ] SettingScreen – uložení nastavení do FRAM
+- [ ] NetworkScreen – uložení WiFi/NTP/Hostname do FRAM
 - [ ] BoilerDetailScreen – uložení do FRAM
 - [ ] DiscoveryScreen – uložení výsledků do FRAM
 - [ ] DiagnosticScreen I/O – napojit IO1–IO10 na PulseCounter
@@ -115,7 +123,7 @@
 - [ ] AlarmManager – struktura + DiagnosticScreen Alarmy záložka
 - [ ] LogoScreen – PNG z LittleFS
 - [ ] THEME_INDUSTRIAL a THEME_LIGHT
-- [ ] UdPScreen podmenu Serial/Network/MQTT/Střídač
+- [ ] UdPScreen podmenu Serial/MQTT/Střídač (Network hotovo)
 
 ---
 
@@ -148,3 +156,10 @@
   jinak delta fáze = 0 a měření selže
 - **BOILER_TICK_MS** – musí být shodné s invPollMs v gConfig (oboje 2000ms)
   jinak tick() pracuje se staršími daty než čeká
+- **Sdílený sprite gContentSprite** – 320×CONTENT_H px, alokován v uiSetup(),
+  předán ControlScreen a NetworkScreen přes setSprite(). Nikdy nealokovat
+  vlastní sprite v těchto screenech – 2× 117 KB způsobí selhání alokace
+- **_drawItem musí volat _drawAllItems** – screeny se spritem musí vždy
+  pushSprite na konci; přímé volání _drawItemAt bez push nic nezobrazí
+- **NetworkScreen textový editor** – kreslí přímo na tft (ne do spritu),
+  _drawTextEditor používá tft.fillRect, ne sprite

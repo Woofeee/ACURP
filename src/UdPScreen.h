@@ -7,7 +7,6 @@
 //    Network   → (future) NetworkConfigScreen
 //    MQTT      → (future) MqttConfigScreen
 //    Stridac   → (future) InverterConfigScreen
-//    Zpet      → SCREEN_MENU
 //
 //  LEFT → SCREEN_MENU
 // =============================================================
@@ -32,12 +31,11 @@ namespace UdPScreen {
     };
 
     static const UdPItem _items[] = {
-        { "Rizeni",  "boilery, discovery", SCREEN_CONTROL, true  },  // ← aktivní
-        { "Serial",  "Modbus, RS485",      SCREEN_NONE,    false },
-        { "Network", "WiFi, IP, NTP",      SCREEN_NONE,    false },
-        { "MQTT",    "broker, topic",       SCREEN_NONE,    false },
-        { "Stridac", "typ, adresa",         SCREEN_NONE,    false },
-        { "Zpet",    "",                    SCREEN_MENU,    true  },
+        { "Rizeni",  "boilery, discovery", SCREEN_CONTROL,  true  },
+        { "Serial",  "Modbus, RS485",      SCREEN_NONE,     false },
+        { "Network", "WiFi, IP, NTP",      SCREEN_NETWORK,  true  },
+        { "MQTT",    "broker, topic",      SCREEN_NONE,     false },
+        { "Stridac", "typ, adresa",        SCREEN_NONE,     false },
     };
     static const uint8_t _itemCount = sizeof(_items) / sizeof(_items[0]);
 
@@ -50,7 +48,6 @@ namespace UdPScreen {
         const UdPItem& item = _items[idx];
         int16_t y    = UDP_START_Y + idx * UDP_ROW_H;
         bool active  = (idx == _cursor);
-        bool isBack  = (strcmp(item.label, "Zpet") == 0);
         bool avail   = item.available;
 
         if (active) {
@@ -61,9 +58,8 @@ namespace UdPScreen {
         }
 
         uint16_t col;
-        if (isBack)       col = t->dim;
-        else if (!avail)  col = active ? t->dim : 0x2104;
-        else              col = active ? t->accent : t->text;
+        if (!avail)  col = active ? t->dim : 0x2104;
+        else         col = active ? t->accent : t->text;
 
         tft.setFont(&fonts::Font2);
         tft.setTextColor(col);
@@ -77,14 +73,14 @@ namespace UdPScreen {
             tft.setTextDatum(top_left);
         }
 
-        if (!avail && !isBack) {
+        if (!avail) {
             tft.setFont(&fonts::Font2);
             tft.setTextColor(0x2104);
             tft.setCursor(155, y + 8);
             tft.print("(brzy)");
         }
 
-        if (avail && !isBack) {
+        if (avail) {
             tft.setTextColor(active ? t->accent : t->dim);
             tft.setCursor(300, y + 8);
             tft.print(">");
@@ -97,7 +93,14 @@ namespace UdPScreen {
 
         tft.fillScreen(t->bg);
         Header::draw(t, dt, apState, staState, invState, alarm);
-        Header::drawFooter(t, d);
+
+        // Spodní lišta – navigace (jako SettingScreen)
+        tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->dim);
+        tft.setTextDatum(middle_center);
+        tft.drawString("UP/DN  CENTER vstup  LEFT zpet", 160, FTR_Y + 13);
+        tft.setTextDatum(top_left);
 
         tft.setFont(&fonts::Font2);
         tft.setTextColor(t->accent);

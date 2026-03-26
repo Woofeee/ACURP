@@ -113,12 +113,12 @@ BOOT → LOGO → MAIN
  HISTORY   DIAGNOSTIC  SETTING   PASSWORD
  (2 záložky) (3 záložky)              │
                                      UDP
-                                      │
-                                   CONTROL
-                                   │      │
-                              DISCOVERY  BOILER_DETAIL
-                                         (LEFT/RIGHT
-                                          mezi byty)
+                               ┌──────┘
+                            CONTROL   NETWORK
+                            │      │
+                       DISCOVERY  BOILER_DETAIL
+                                  (LEFT/RIGHT
+                                   mezi byty)
 ```
 
 ### enum Screen
@@ -135,6 +135,7 @@ SCREEN_UDP           = 8
 SCREEN_CONTROL       = 9   // UdP → Řízení
 SCREEN_DISCOVERY     = 10  // UdP → Řízení → Spustit discovery
 SCREEN_BOILER_DETAIL = 11  // UdP → Řízení → Zásobníky → detail bytu
+SCREEN_NETWORK       = 12  // UdP → Network (WiFi STA/AP, NTP, Hostname)
 SCREEN_NONE          = 0xFF
 ```
 
@@ -219,7 +220,7 @@ SolarModel::updateApartments(wh[])            // taskHeartbeat
 - loadFromFRAM() – výchozí PIN 0000, TODO FRAM
 
 ### UdPScreen ✅
-- Položka "Rizeni" aktivní → SCREEN_CONTROL
+- Položky "Rizeni" → SCREEN_CONTROL a "Network" → SCREEN_NETWORK aktivní
 - Ostatní "(brzy)"
 
 ### ControlScreen ✅
@@ -238,21 +239,43 @@ SolarModel::updateApartments(wh[])            // taskHeartbeat
 - Výsledky ukládá do gBoilerCfg[] v RAM, TODO FRAM
 
 ### BoilerDetailScreen ✅
-- Editace: Label (znak po znaku), Enable, allowedGridW, timeStart, timeEnd
+- Editace: Label (fullscreen editor znak po znaku), Enable, allowedGridW, timeStart, timeEnd
+- Label editor: charset A–Z, 0–9, mezera; 15 boxů 18×32px, náhled výsledku
 - Readonly: výsledek Discovery (fáze, příkon, stav)
 - LEFT/RIGHT přepíná mezi byty 1–numBoilers
 - LEFT na bytu 1 → SCREEN_CONTROL
 - begin(idx) nastaví počáteční zásobník
 - Ukládá do gBoilerCfg[] v RAM, TODO FRAM
 
+### NetworkScreen ✅
+- 4 sekce: WiFi STA (8 položek), WiFi AP (8 položek), NTP (4 položky), Ostatni (Hostname)
+- Textové položky (SSID, heslo, server, TZ, hostname) otevřou fullscreen textový editor
+- Fullscreen textový editor: charset A–Z, a–z, 0–9, mezera + spec. znaky (.-_@/:!#$%&+=?)
+  pás 9 znaků s aktivním uprostřed, boxy editovaného textu (1–2 řádky dle délky pole)
+- Hesla zobrazena jako *** v seznamu, editována v plaintextu
+- IP adresy: UP/DOWN mění poslední oktet
+- Sprite sdílený s ControlScreen (gContentSprite z main_ui_loop)
+- Ukládá do gConfig v RAM, TODO FRAM
+
 ---
 
 ## uiSetup() / uiLoop() (main_ui_loop.h)
 
 ```cpp
-uiSetup();  // v setup(): načte FRAM data pro screeny, replaceTo(MAIN)
+uiSetup();  // v setup(): načte FRAM data pro screeny, alokuje gContentSprite,
+            // předá sprite screenům přes setSprite(), replaceTo(MAIN)
 uiLoop();   // v loop(): switch → draw při změně → update 1×/s
             // výjimka: SCREEN_DISCOVERY dostává update v každém průchodu
+```
+
+### gContentSprite – sdílený sprite pro obsah
+```cpp
+static LGFX_Sprite gContentSprite(&tft);  // 320 × CONTENT_H px = 117 KB
+// Alokován jednou v uiSetup(), předán screenům:
+ControlScreen::setSprite(&gContentSprite);
+NetworkScreen::setSprite(&gContentSprite);
+// Screeny kreslí přes LovyanGFX* dc = _spr ? _spr : &tft
+// sy = _spr ? y - CONTENT_Y : y  (sprite souřadnice vs. absolutní)
 ```
 
 ### _refreshState()
@@ -281,3 +304,9 @@ gAlarm  = (gUI_data.invStatus == 3);
 - **taskHeartbeat nesmí kreslit** – výhradně uiLoop()
 - **DiscoveryScreen update** – volat v každém průchodu uiLoop(),
   ne jen při shouldUpdate() – má vlastní 2s časování uvnitř
+- **Sdílený sprite setSprite()** – ControlScreen a NetworkScreen používají
+  gContentSprite z main_ui_loop. Nikdy nealokovat vlastní – 2× 117 KB = heap fail
+- **_drawItem musí volat _drawAllItems** – jinak se pushSprite nezavolá
+  a změna se na displeji neobjeví (kreslení do spritu bez push = nic)
+- **NetworkScreen _drawTextEditor** – kreslí přímo na tft, ne do spritu.
+  Přepnutí editor↔seznam vždy překreslí celý obsah přes _drawAllItems

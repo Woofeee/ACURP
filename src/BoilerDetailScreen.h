@@ -1,9 +1,6 @@
 // =============================================================
 //  BoilerDetailScreen.h – konfigurace jednotlivého zásobníku
 //
-//  Zobrazuje a edituje konfiguraci jednoho zásobníku (bytu).
-//  Přístup: ControlScreen → Zásobníky → výběr bytu
-//
 //  Editovatelné položky:
 //    Label           – textový název (A–Z, 0–9, mezera)
 //    Enable          – zásobník aktivní v systému
@@ -12,15 +9,22 @@
 //    Čas do          – timeEnd [h]
 //
 //  Readonly (výsledek Discovery):
-//    Fáze            – L1/L2/L3 (změřeno)
-//    Příkon          – [W] (změřeno)
-//    Discovery stav  – hotovo / chybí
+//    Discovery: fáze L1/L2/L3, příkon [W]
 //
-//  Navigace:
-//    UP/DOWN   – pohyb kurzoru / změna hodnoty při editaci
-//    LEFT      – předchozí zásobník (nebo zpět do ControlScreen)
-//    RIGHT     – další zásobník
-//    CENTER    – vstup do editace / potvrzení
+//  Navigace – normální:
+//    UP/DOWN        – pohyb kurzoru
+//    LEFT           – předchozí zásobník / zpět do ControlScreen
+//    RIGHT          – další zásobník
+//    CENTER         – vstup do editace
+//
+//  Navigace – editace (ostatní položky):
+//    UP/DOWN        – změna hodnoty
+//    CENTER / LEFT  – potvrdit a zavřít
+//
+//  Navigace – editace labelu (fullscreen):
+//    UP/DOWN        – změna znaku na aktivní pozici
+//    LEFT / RIGHT   – pohyb po znacích
+//    CENTER         – potvrdit celý label a zavřít
 // =============================================================
 #pragma once
 #include <Arduino.h>
@@ -50,44 +54,40 @@ namespace BoilerDetailScreen {
         ITEM_TIME_START,
         ITEM_TIME_END,
         ITEM_COUNT,
-
-        // Readonly sekce – nejsou v iteraci editace
-        ITEM_DISC_PHASE,
-        ITEM_DISC_POWER,
-        ITEM_DISC_STATUS,
     };
 
-    static uint8_t _boilerIdx   = 0;   // aktuálně zobrazený zásobník (0–9)
-    static uint8_t _cursor      = 0;   // aktivní položka
-    static bool    _editing     = false;
+    static uint8_t _boilerIdx    = 0;
+    static uint8_t _cursor       = 0;
+    static bool    _editing      = false;
+    static bool    _editingLabel = false;  // fullscreen label editor
 
-    // Pro editaci labelu – pozice znaku
-    static uint8_t _labelCharPos = 0;
+    // Pracovní kopie labelu při editaci (aby šlo zrušit)
+    static char    _labelBuf[16] = {};
+    static uint8_t _labelPos     = 0;     // aktivní pozice 0–15
 
     #define DETAIL_ROW_H    24
-    #define DETAIL_START_Y  (CONTENT_Y + 30)  // pod nadpisem zásobníku
+    #define DETAIL_START_Y  (CONTENT_Y + 30)
+
+    // Délka labelu (bez null terminátor)
+    #define LABEL_MAX       15
 
     // ----------------------------------------------------------
-    //  Inicializace – volej při přepnutí na tento screen
+    //  Inicializace
     // ----------------------------------------------------------
     void begin(uint8_t boilerIdx) {
-        _boilerIdx   = constrain(boilerIdx, 0,
-                                 (uint8_t)(gConfig.numBoilers - 1));
-        _cursor      = 0;
-        _editing     = false;
-        _labelCharPos = 0;
+        _boilerIdx    = constrain(boilerIdx, 0, (uint8_t)(gConfig.numBoilers - 1));
+        _cursor       = 0;
+        _editing      = false;
+        _editingLabel = false;
+        _labelPos     = 0;
     }
 
     // ----------------------------------------------------------
-    //  Pomocné: sada povolených znaků pro label
-    //  Navigace UP/DOWN prochází: A–Z, 0–9, mezera
+    //  Charset pro label: mezera, A–Z, 0–9
     // ----------------------------------------------------------
     static char _nextChar(char c, int8_t dir) {
-        // Sada: ' ', 'A'–'Z', '0'–'9'
         const char* charset = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         const uint8_t len   = 37;
-
-        // Najdi aktuální pozici
         uint8_t pos = 0;
         for (uint8_t i = 0; i < len; i++) {
             if (charset[i] == c) { pos = i; break; }
@@ -97,141 +97,237 @@ namespace BoilerDetailScreen {
     }
 
     // ----------------------------------------------------------
-    //  Ulož změnu položky do gBoilerCfg[_boilerIdx]
+    //  Efektivní délka labelu (bez trailing mezer)
     // ----------------------------------------------------------
-    static void _saveItem(uint8_t idx) {
-        BoilerConfig& cfg = gBoilerCfg[_boilerIdx];
-
-        switch ((ItemId)idx) {
-            case ITEM_ENABLE:
-                // toggle – provádí se přímo při stisku CENTER
-                break;
-            case ITEM_ALLOWED_GRID:
-                // hodnota se mění průběžně – uložena v cfg přímo
-                break;
-            case ITEM_TIME_START:
-            case ITEM_TIME_END:
-                // hodnota se mění průběžně – uložena v cfg přímo
-                break;
-            case ITEM_LABEL:
-                // label se mění průběžně – uložen v cfg přímo
-                break;
-            default:
-                break;
+    static uint8_t _labelLen(const char* s) {
+        int8_t last = -1;
+        for (uint8_t i = 0; i < LABEL_MAX; i++) {
+            if (s[i] == '\0') break;
+            if (s[i] != ' ')  last = i;
         }
+        return (uint8_t)(last + 1);
+    }
 
-        // TODO: ConfigManager::saveBoilerCfg(_boilerIdx) až bude FRAM mapa
-        Serial.printf("[BD] Byt %u uloženo\n", _boilerIdx + 1);
+    // ==========================================================
+    //  FULLSCREEN LABEL EDITOR
+    // ==========================================================
+
+    // Nakresli fullscreen editor labelu
+    static void _drawLabelEditor(const Theme* t) {
+        tft.fillRect(0, CONTENT_Y, 320, CONTENT_H, t->bg);
+
+        // Nadpis
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->accent);
+        tft.setCursor(16, CONTENT_Y + 6);
+        tft.print("Nazev zasobniku");
+        tft.drawFastHLine(16, CONTENT_Y + 20, 288, t->dim);
+
+        // --- Zobrazení labelu se zvýrazněným znakem ---
+        // Každý znak v boxu 18×32px, od x=8, y=CONTENT_Y+28
+        // Vejde se 16 znaků × 18px = 288px → ok na 304px šířky obsahu
+        const int16_t BOX_W  = 18;
+        const int16_t BOX_H  = 32;
+        const int16_t ROW_Y  = CONTENT_Y + 28;
+        const int16_t START_X = 16;
+
+        for (uint8_t i = 0; i < LABEL_MAX; i++) {
+            int16_t bx = START_X + i * BOX_W;
+            bool    active = (i == _labelPos);
+            char    c = _labelBuf[i];
+            if (c == '\0') c = ' ';
+
+            // Pozadí boxu
+            if (active) {
+                tft.fillRect(bx, ROW_Y, BOX_W - 1, BOX_H, t->header);
+                tft.drawRect(bx, ROW_Y, BOX_W - 1, BOX_H, t->accent);
+            } else {
+                tft.fillRect(bx, ROW_Y, BOX_W - 1, BOX_H, t->bg);
+                // Jemný rámeček pro neprázdné znaky
+                if (c != ' ') {
+                    tft.drawRect(bx, ROW_Y, BOX_W - 1, BOX_H, t->dim);
+                }
+            }
+
+            // Znak
+            tft.setFont(&fonts::Font4);
+            tft.setTextColor(active ? t->accent : (c == ' ' ? t->dim : t->text));
+            tft.setTextDatum(middle_center);
+            char cs[2] = { c, '\0' };
+            tft.drawString(cs, bx + BOX_W / 2, ROW_Y + BOX_H / 2);
+        }
+        tft.setTextDatum(top_left);
+
+        // --- Šipky nahoru/dolů vedle aktivního boxu ---
+        int16_t ax = START_X + _labelPos * BOX_W + BOX_W / 2;
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->accent);
+        tft.setTextDatum(bottom_center);
+        tft.drawString("^", ax, ROW_Y - 2);
+        tft.setTextDatum(top_center);
+        tft.drawString("v", ax, ROW_Y + BOX_H + 2);
+        tft.setTextDatum(top_left);
+
+        // --- Náhled výsledného textu ---
+        int16_t previewY = ROW_Y + BOX_H + 20;
+        tft.drawFastHLine(16, previewY, 288, t->dim);
+        previewY += 6;
+
+        char preview[LABEL_MAX + 1] = {};
+        strncpy(preview, _labelBuf, LABEL_MAX);
+        // Ořízni trailing mezery pro náhled
+        uint8_t plen = _labelLen(_labelBuf);
+        preview[plen] = '\0';
+
+        tft.setFont(&fonts::Font4);
+        tft.setTextColor(plen > 0 ? t->text : t->dim);
+        tft.setTextDatum(top_center);
+        tft.drawString(plen > 0 ? preview : "---", 160, previewY);
+        tft.setTextDatum(top_left);
+
+        // --- Spodní lišta ---
+        tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->dim);
+        tft.setTextDatum(middle_center);
+        tft.drawString("UP/DN znak  L/R pozice  CENTER ok", 160, FTR_Y + 13);
+        tft.setTextDatum(top_left);
     }
 
     // ----------------------------------------------------------
-    //  Krok UP při editaci
+    //  Obsluha vstupu v label editoru
+    // ----------------------------------------------------------
+    static Screen _handleLabelInput(const Theme* t, SwButton btn) {
+        switch (btn) {
+            case SW_UP:
+                _labelBuf[_labelPos] = _nextChar(_labelBuf[_labelPos], +1);
+                _drawLabelEditor(t);
+                return SCREEN_NONE;
+
+            case SW_DOWN:
+                _labelBuf[_labelPos] = _nextChar(_labelBuf[_labelPos], -1);
+                _drawLabelEditor(t);
+                return SCREEN_NONE;
+
+            case SW_RIGHT:
+                if (_labelPos < LABEL_MAX - 1) {
+                    _labelPos++;
+                    _drawLabelEditor(t);
+                }
+                return SCREEN_NONE;
+
+            case SW_LEFT:
+                if (_labelPos > 0) {
+                    _labelPos--;
+                    _drawLabelEditor(t);
+                } else {
+                    // Na první pozici – zruš editaci bez uložení
+                    _editingLabel = false;
+                    _editing      = false;
+                }
+                return SCREEN_NONE;
+
+            case SW_CENTER:
+                // Uložit label
+                memset(gBoilerCfg[_boilerIdx].label, 0,
+                       sizeof(gBoilerCfg[0].label));
+                strncpy(gBoilerCfg[_boilerIdx].label,
+                        _labelBuf, LABEL_MAX);
+                // Ořízni trailing mezery
+                for (int8_t i = LABEL_MAX - 1; i >= 0; i--) {
+                    if (gBoilerCfg[_boilerIdx].label[i] == ' ')
+                        gBoilerCfg[_boilerIdx].label[i] = '\0';
+                    else
+                        break;
+                }
+                Serial.printf("[BD] Label Byt %u: '%s'\n",
+                    _boilerIdx + 1, gBoilerCfg[_boilerIdx].label);
+                _editingLabel = false;
+                _editing      = false;
+                return SCREEN_NONE;  // signál pro draw() aby překreslil seznam
+
+            default:
+                return SCREEN_NONE;
+        }
+    }
+
+    // ----------------------------------------------------------
+    //  Krok hodnoty UP/DOWN pro ostatní položky
     // ----------------------------------------------------------
     static void _stepUp() {
         BoilerConfig& cfg = gBoilerCfg[_boilerIdx];
         switch ((ItemId)_cursor) {
-            case ITEM_LABEL:
-                cfg.label[_labelCharPos] =
-                    _nextChar(cfg.label[_labelCharPos], +1);
-                break;
             case ITEM_ENABLE:
-                cfg.enabled = !cfg.enabled;
-                break;
+                cfg.enabled = !cfg.enabled; break;
             case ITEM_ALLOWED_GRID:
-                cfg.allowedGridW = (uint16_t)constrain(
-                    (int)cfg.allowedGridW + 100, 0, 3000);
-                break;
+                cfg.allowedGridW = (uint16_t)constrain((int)cfg.allowedGridW + 100, 0, 3000); break;
             case ITEM_TIME_START:
-                cfg.timeStart = (cfg.timeStart + 1) % 24;
-                break;
+                cfg.timeStart = (cfg.timeStart + 1) % 24; break;
             case ITEM_TIME_END:
-                cfg.timeEnd = (cfg.timeEnd + 1) % 24;
-                break;
+                cfg.timeEnd = (cfg.timeEnd + 1) % 24; break;
             default: break;
         }
     }
 
-    // ----------------------------------------------------------
-    //  Krok DOWN při editaci
-    // ----------------------------------------------------------
     static void _stepDown() {
         BoilerConfig& cfg = gBoilerCfg[_boilerIdx];
         switch ((ItemId)_cursor) {
-            case ITEM_LABEL:
-                cfg.label[_labelCharPos] =
-                    _nextChar(cfg.label[_labelCharPos], -1);
-                break;
             case ITEM_ENABLE:
-                cfg.enabled = !cfg.enabled;
-                break;
+                cfg.enabled = !cfg.enabled; break;
             case ITEM_ALLOWED_GRID:
-                cfg.allowedGridW = (uint16_t)constrain(
-                    (int)cfg.allowedGridW - 100, 0, 3000);
-                break;
+                cfg.allowedGridW = (uint16_t)constrain((int)cfg.allowedGridW - 100, 0, 3000); break;
             case ITEM_TIME_START:
-                cfg.timeStart = (cfg.timeStart + 23) % 24;
-                break;
+                cfg.timeStart = (cfg.timeStart + 23) % 24; break;
             case ITEM_TIME_END:
-                cfg.timeEnd = (cfg.timeEnd + 23) % 24;
-                break;
+                cfg.timeEnd = (cfg.timeEnd + 23) % 24; break;
             default: break;
         }
     }
 
-    // ----------------------------------------------------------
-    //  Nakresli nadpis zásobníku + navigační šipky
-    // ----------------------------------------------------------
+    // ==========================================================
+    //  SEZNAM (normální view)
+    // ==========================================================
+
     static void _drawTitle(const Theme* t) {
         tft.fillRect(0, CONTENT_Y, 320, 28, t->bg);
 
-        // Šipka vlevo (předchozí zásobník)
         tft.setFont(&fonts::Font2);
         tft.setTextColor(_boilerIdx > 0 ? t->accent : t->dim);
         tft.setCursor(8, CONTENT_Y + 8);
         tft.print("<");
 
-        // Název zásobníku uprostřed
         char title[24];
         snprintf(title, sizeof(title), "Byt %u – %s",
                  _boilerIdx + 1,
                  gBoilerCfg[_boilerIdx].label[0] != '\0'
-                     ? gBoilerCfg[_boilerIdx].label
-                     : "---");
+                     ? gBoilerCfg[_boilerIdx].label : "---");
         tft.setTextColor(t->accent);
         tft.setTextDatum(top_center);
         tft.setFont(&fonts::Font4);
         tft.drawString(title, 160, CONTENT_Y + 4);
         tft.setTextDatum(top_left);
 
-        // Šipka vpravo (další zásobník)
         tft.setFont(&fonts::Font2);
         tft.setTextColor(_boilerIdx < gConfig.numBoilers - 1 ? t->accent : t->dim);
         tft.setCursor(308, CONTENT_Y + 8);
         tft.print(">");
 
-        // Indikátor pozice: "3 / 7"
         char pos[8];
-        snprintf(pos, sizeof(pos), "%u/%u",
-                 _boilerIdx + 1, gConfig.numBoilers);
+        snprintf(pos, sizeof(pos), "%u/%u", _boilerIdx + 1, gConfig.numBoilers);
         tft.setFont(&fonts::Font2);
         tft.setTextColor(t->dim);
         tft.setTextDatum(top_right);
         tft.drawString(pos, 308, CONTENT_Y + 18);
         tft.setTextDatum(top_left);
 
-        // Oddělovací čára
         tft.drawFastHLine(8, CONTENT_Y + 28, 304, t->dim);
     }
 
-    // ----------------------------------------------------------
-    //  Nakresli jednu editovatelnou položku
-    // ----------------------------------------------------------
     static void _drawEditRow(const Theme* t, uint8_t idx, int16_t y) {
-        BoilerConfig& cfg  = gBoilerCfg[_boilerIdx];
-        bool active        = (idx == _cursor);
-        bool editing       = (active && _editing);
+        BoilerConfig& cfg = gBoilerCfg[_boilerIdx];
+        bool active   = (idx == _cursor);
+        bool editing  = (active && _editing);
 
-        // Pozadí
         if (active) {
             tft.fillRect(8, y, 304, DETAIL_ROW_H, t->header);
             tft.fillRect(8, y, 3,   DETAIL_ROW_H, t->accent);
@@ -241,45 +337,27 @@ namespace BoilerDetailScreen {
 
         tft.setFont(&fonts::Font2);
 
-        // Label položky
-        const char* labels[] = {
-            "Label", "Aktivni", "Povol. odber", "Cas od", "Cas do"
-        };
+        const char* labels[] = { "Label", "Aktivni", "Povol. odber", "Cas od", "Cas do" };
         tft.setTextColor(active ? t->accent : t->text);
         tft.setCursor(20, y + 5);
         tft.print(labels[idx]);
 
-        // Hodnota
-        char val[20];
+        // Hodnota vpravo
+        char val[20] = {};
         switch ((ItemId)idx) {
             case ITEM_LABEL:
-                // Zobraz label se zvýrazněním aktivního znaku při editaci
-                if (editing) {
-                    // Levá část
-                    char left[16] = {};
-                    strncpy(left, cfg.label, _labelCharPos);
-                    tft.setTextColor(t->text);
-                    tft.setTextDatum(middle_right);
-                    tft.drawString(left, 220, y + 12);
-
-                    // Aktivní znak – cyan podtržení
-                    char cur[2] = { cfg.label[_labelCharPos], '\0' };
-                    tft.setTextColor(t->accent);
-                    int16_t cx = 220 + (_labelCharPos * 6);  // přibližná X pozice
-                    tft.drawString(cur, cx, y + 12);
-                    tft.fillRect(cx - 3, y + DETAIL_ROW_H - 4, 8, 2, t->accent);
-
-                    // Pravá část
-                    tft.setTextColor(t->text);
-                    tft.drawString(cfg.label + _labelCharPos + 1, cx + 8, y + 12);
-                    tft.setTextDatum(top_left);
-                } else {
-                    tft.setTextColor(editing ? t->accent : t->text);
-                    tft.setTextDatum(middle_right);
-                    tft.drawString(cfg.label[0] ? cfg.label : "---", 308, y + 12);
-                    tft.setTextDatum(top_left);
+                // Zobraz label nebo "---", šipka >>> naznačuje vstup do editoru
+                tft.setTextColor(editing ? t->accent : t->text);
+                tft.setTextDatum(middle_right);
+                tft.drawString(
+                    cfg.label[0] ? cfg.label : "---",
+                    active ? 295 : 308, y + 12);
+                if (active) {
+                    tft.setTextColor(t->dim);
+                    tft.drawString(">>>", 308, y + 12);
                 }
-                return;  // label má vlastní kreslení
+                tft.setTextDatum(top_left);
+                return;
 
             case ITEM_ENABLE:
                 snprintf(val, sizeof(val), "%s", cfg.enabled ? "on" : "off");
@@ -302,9 +380,7 @@ namespace BoilerDetailScreen {
                 else
                     snprintf(val, sizeof(val), "%u h", cfg.timeEnd);
                 break;
-            default:
-                val[0] = '\0';
-                break;
+            default: break;
         }
 
         tft.setTextColor(editing ? t->accent : t->text);
@@ -313,9 +389,6 @@ namespace BoilerDetailScreen {
         tft.setTextDatum(top_left);
     }
 
-    // ----------------------------------------------------------
-    //  Nakresli readonly sekci (výsledek Discovery)
-    // ----------------------------------------------------------
     static void _drawDiscoveryInfo(const Theme* t) {
         BoilerConfig& cfg = gBoilerCfg[_boilerIdx];
         int16_t y = DETAIL_START_Y + ITEM_COUNT * DETAIL_ROW_H + 8;
@@ -324,12 +397,9 @@ namespace BoilerDetailScreen {
         y += 4;
 
         tft.setFont(&fonts::Font2);
-
         if (cfg.discoveryDone) {
-            // Fáze a příkon
             char buf[32];
-            snprintf(buf, sizeof(buf), "Discovery: L%u  %u W",
-                     cfg.phase, cfg.powerW);
+            snprintf(buf, sizeof(buf), "Discovery: L%u  %u W", cfg.phase, cfg.powerW);
             tft.setTextColor(t->ok);
             tft.setCursor(16, y);
             tft.print(buf);
@@ -343,28 +413,29 @@ namespace BoilerDetailScreen {
         }
     }
 
-    // ----------------------------------------------------------
-    //  Překresli celý obsah (bez záhlaví)
-    // ----------------------------------------------------------
     static void _drawContent(const Theme* t) {
         tft.fillRect(0, CONTENT_Y, 320, CONTENT_H, t->bg);
         _drawTitle(t);
-
         int16_t y = DETAIL_START_Y;
         for (uint8_t i = 0; i < ITEM_COUNT; i++) {
             _drawEditRow(t, i, y);
             y += DETAIL_ROW_H;
         }
-
         _drawDiscoveryInfo(t);
     }
 
-    // ----------------------------------------------------------
-    //  Překresli jen jeden řádek
-    // ----------------------------------------------------------
     static void _drawRow(const Theme* t, uint8_t idx) {
-        int16_t y = DETAIL_START_Y + idx * DETAIL_ROW_H;
-        _drawEditRow(t, idx, y);
+        _drawEditRow(t, idx, DETAIL_START_Y + idx * DETAIL_ROW_H);
+    }
+
+    // Nakresli spodní lištu pro seznam
+    static void _drawFooterList(const Theme* t) {
+        tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
+        tft.setFont(&fonts::Font2);
+        tft.setTextColor(t->dim);
+        tft.setTextDatum(middle_center);
+        tft.drawString("CENTER edit  LEFT/RIGHT byt  UP/DN hodnota", 160, FTR_Y + 13);
+        tft.setTextDatum(top_left);
     }
 
     // ==========================================================
@@ -378,15 +449,12 @@ namespace BoilerDetailScreen {
         tft.fillScreen(t->bg);
         Header::draw(t, dt, apState, staState, invState, alarm);
 
-        // Spodní lišta – nápověda
-        tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
-        tft.setFont(&fonts::Font2);
-        tft.setTextColor(t->dim);
-        tft.setTextDatum(middle_center);
-        tft.drawString("CENTER edit  LEFT/RIGHT byt  UP/DN hodnota", 160, FTR_Y + 13);
-        tft.setTextDatum(top_left);
-
-        _drawContent(t);
+        if (_editingLabel) {
+            _drawLabelEditor(t);
+        } else {
+            _drawFooterList(t);
+            _drawContent(t);
+        }
     }
 
     void update(const Theme* t, const DateTime& dt,
@@ -397,54 +465,40 @@ namespace BoilerDetailScreen {
 
     Screen handleInput(const Theme* t, SwButton btn) {
 
+        // --- Label editor (fullscreen) ---
+        if (_editingLabel) {
+            Screen ret = _handleLabelInput(t, btn);
+            // Po potvrzení (CENTER) nebo zrušení (LEFT na pos 0) překresli seznam
+            if (!_editingLabel) {
+                _drawFooterList(t);
+                _drawContent(t);
+            }
+            return ret;
+        }
+
+        // --- Editace ostatních položek ---
         if (_editing) {
             switch (btn) {
                 case SW_UP:
                     _stepUp();
                     _drawRow(t, _cursor);
                     return SCREEN_NONE;
-
                 case SW_DOWN:
                     _stepDown();
                     _drawRow(t, _cursor);
                     return SCREEN_NONE;
-
-                case SW_RIGHT:
-                    // Při editaci labelu – přejdi na další znak
-                    if (_cursor == ITEM_LABEL) {
-                        uint8_t maxLen = (uint8_t)(sizeof(gBoilerCfg[0].label) - 1);
-                        if (_labelCharPos < maxLen - 1) {
-                            _labelCharPos++;
-                            _drawRow(t, _cursor);
-                        }
-                    }
-                    return SCREEN_NONE;
-
-                case SW_LEFT:
-                    // Při editaci labelu – předchozí znak nebo zrušení
-                    if (_cursor == ITEM_LABEL && _labelCharPos > 0) {
-                        _labelCharPos--;
-                        _drawRow(t, _cursor);
-                        return SCREEN_NONE;
-                    }
-                    // Jinak zruš editaci
-                    _editing = false;
-                    _drawRow(t, _cursor);
-                    return SCREEN_NONE;
-
                 case SW_CENTER:
-                    // Potvrzení – ukonči editaci a ulož
+                case SW_LEFT:
                     _editing = false;
-                    _saveItem(_cursor);
+                    Serial.printf("[BD] Byt %u uloženo\n", _boilerIdx + 1);
                     _drawRow(t, _cursor);
                     return SCREEN_NONE;
-
                 default:
                     return SCREEN_NONE;
             }
         }
 
-        // Normální navigace
+        // --- Normální navigace ---
         switch (btn) {
             case SW_UP:
                 if (_cursor > 0) {
@@ -462,34 +516,43 @@ namespace BoilerDetailScreen {
                 }
                 return SCREEN_NONE;
 
+            case SW_CENTER:
+                if (_cursor == ITEM_LABEL) {
+                    // Otevři fullscreen label editor
+                    memset(_labelBuf, ' ', LABEL_MAX);
+                    _labelBuf[LABEL_MAX] = '\0';
+                    // Načti stávající label do pracovního bufferu
+                    uint8_t srcLen = (uint8_t)strlen(gBoilerCfg[_boilerIdx].label);
+                    if (srcLen > LABEL_MAX) srcLen = LABEL_MAX;
+                    memcpy(_labelBuf, gBoilerCfg[_boilerIdx].label, srcLen);
+                    // Zbytek nech jako mezery (už nastaveno výše)
+                    _labelPos     = 0;
+                    _editingLabel = true;
+                    _drawLabelEditor(t);
+                } else {
+                    _editing = true;
+                    _drawRow(t, _cursor);
+                }
+                return SCREEN_NONE;
+
             case SW_LEFT:
                 if (_boilerIdx > 0) {
-                    // Přepni na předchozí zásobník
                     _boilerIdx--;
                     _cursor  = 0;
                     _editing = false;
                     _drawContent(t);
                 } else {
-                    // Jsme na prvním zásobníku → zpět do ControlScreen
                     return SCREEN_CONTROL;
                 }
                 return SCREEN_NONE;
 
             case SW_RIGHT:
                 if (_boilerIdx < gConfig.numBoilers - 1) {
-                    // Přepni na další zásobník
                     _boilerIdx++;
                     _cursor  = 0;
                     _editing = false;
                     _drawContent(t);
                 }
-                return SCREEN_NONE;
-
-            case SW_CENTER:
-                // Vstup do editace
-                _editing      = true;
-                _labelCharPos = 0;
-                _drawRow(t, _cursor);
                 return SCREEN_NONE;
 
             default:
@@ -500,8 +563,8 @@ namespace BoilerDetailScreen {
     void reset() {
         _cursor       = 0;
         _editing      = false;
-        _labelCharPos = 0;
-        // _boilerIdx zachováme – nastaven přes begin()
+        _editingLabel = false;
+        _labelPos     = 0;
     }
 
 } // namespace BoilerDetailScreen
