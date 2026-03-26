@@ -114,10 +114,9 @@ void setup() {
     tft.init();
     tft.setRotation(1);
 
-    // Konfigurace
-    ConfigManager::loadFromFram();
+    // Konfigurace – zatím defaults (FRAM ještě není dostupná)
+    ConfigManager::loadDefaults();
     gTheme = THEMES[gConfig.themeIndex];
-    ConfigManager::print();
 
     // Boot screen
     ScreenManager::set(SCREEN_BOOT);
@@ -133,8 +132,13 @@ void setup() {
     // FRAM
     if (gFRAM.begin()) {
         BootScreen::print(gTheme, BOOT_OK, "FRAM 8KB");
+        // Teď načti konfiguraci z FRAM (I2C už běží)
+        ConfigManager::loadFromFram();
+        gTheme = THEMES[gConfig.themeIndex];
+        ConfigManager::print();
     } else {
-        BootScreen::print(gTheme, BOOT_ERR, "FRAM chyba");
+        BootScreen::print(gTheme, BOOT_ERR, "FRAM chyba – pouzivam defaults");
+        ConfigManager::print();
     }
 
     // RTC
