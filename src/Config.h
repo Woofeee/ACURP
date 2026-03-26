@@ -114,6 +114,17 @@ BoilerSystem  gBoilerSys;
 // =============================================================
 namespace ConfigManager {
 
+    // Forward deklarace (kvůli vzájemným závislostem)
+    void saveToFram();
+    void saveBlockSystem();
+    void saveBlockWifi();
+    void saveBlockModbus();
+    void saveBlockPlant();
+    void saveBlockMqtt();
+    void saveBlockBoilerSys();
+    void saveBlockBoilerCfg();
+    void saveNumBoilers();
+
     // ─────────────────────────────────────────────────────────
     //  Mapování: gConfig ↔ FRAM struktury
     // ─────────────────────────────────────────────────────────

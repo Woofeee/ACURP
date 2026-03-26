@@ -247,7 +247,7 @@ namespace DiscoveryScreen {
         _cfg[boilerIdx].phase         = _measPhase[boilerIdx];
         _cfg[boilerIdx].powerW        = _measPower[boilerIdx];
         _cfg[boilerIdx].discoveryDone = true;
-        // TODO: uložit do FRAM
+        ConfigManager::saveBlockBoilerCfg();
         Serial.printf("[DISC] Byt %u: uloženo L%u %u W\n",
             boilerIdx + 1,
             _cfg[boilerIdx].phase,

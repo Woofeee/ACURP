@@ -405,6 +405,7 @@ namespace NetworkScreen {
                         break;
                     default: break;
                 }
+                ConfigManager::saveBlockWifi();
                 Serial.printf("[NET] %s = '%s'\n",
                     _items[_textItem].label, _items[_textItem].value);
                 _editingText = false;

@@ -242,6 +242,7 @@ namespace BoilerDetailScreen {
                 }
                 Serial.printf("[BD] Label Byt %u: '%s'\n",
                     _boilerIdx + 1, gBoilerCfg[_boilerIdx].label);
+                ConfigManager::saveBlockBoilerCfg();
                 _editingLabel = false;
                 _editing      = false;
                 return SCREEN_NONE;  // signál pro draw() aby překreslil seznam
@@ -490,6 +491,7 @@ namespace BoilerDetailScreen {
                 case SW_CENTER:
                 case SW_LEFT:
                     _editing = false;
+                    ConfigManager::saveBlockBoilerCfg();
                     Serial.printf("[BD] Byt %u uloženo\n", _boilerIdx + 1);
                     _drawRow(t, _cursor);
                     return SCREEN_NONE;
@@ -542,6 +544,7 @@ namespace BoilerDetailScreen {
                     _editing = false;
                     _drawContent(t);
                 } else {
+                    ConfigManager::saveBlockBoilerCfg();
                     return SCREEN_CONTROL;
                 }
                 return SCREEN_NONE;

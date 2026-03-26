@@ -485,7 +485,7 @@ namespace SettingScreen {
                     if (_cursor == ITEM_NTP && strcmp(_items[ITEM_NTP].value, "on") == 0) {
                         gNtpResync = true;
                     }
-                    // TODO: uložit do FRAM
+                    ConfigManager::saveBlockSystem();
                     _drawItem(t, _cursor);
                     return SCREEN_NONE;
                 case SW_LEFT:
