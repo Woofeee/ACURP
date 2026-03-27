@@ -180,7 +180,27 @@ void setup() {
 
     // WiFi AP
     if (gConfig.wifiApEn) {
-        BootScreen::print(gTheme, BOOT_DISABLED, "WiFi AP  (zatim nepodporovano)");
+        WiFi.mode(gConfig.wifiStaEn ? WIFI_AP_STA : WIFI_AP);
+        WiFi.softAPConfig(
+            IPAddress(gConfig.wifiApIp),
+            IPAddress(gConfig.wifiApIp),       // gateway = AP IP
+            IPAddress(gConfig.wifiApMask)
+        );
+        if (gConfig.wifiApPass[0] != '\0' && strlen(gConfig.wifiApPass) >= 8) {
+            gWifiAp = WiFi.softAP(gConfig.wifiApSsid, gConfig.wifiApPass,
+                                   gConfig.wifiApChannel, gConfig.wifiApHidden);
+        } else {
+            gWifiAp = WiFi.softAP(gConfig.wifiApSsid, nullptr,
+                                   gConfig.wifiApChannel, gConfig.wifiApHidden);
+        }
+        if (gWifiAp) {
+            snprintf(buf, sizeof(buf), "WiFi AP  %s  %s",
+                gConfig.wifiApSsid,
+                WiFi.softAPIP().toString().c_str());
+            BootScreen::print(gTheme, BOOT_OK, buf);
+        } else {
+            BootScreen::print(gTheme, BOOT_ERR, "WiFi AP  start selhal");
+        }
     } else {
         BootScreen::print(gTheme, BOOT_DISABLED, "WiFi AP  (vypnuto)");
     }
@@ -189,7 +209,8 @@ void setup() {
     if (gConfig.wifiStaEn) {
         setenv("TZ", gConfig.ntpTz, 1);
         tzset();
-        WiFi.mode(WIFI_STA);
+        if (!gConfig.wifiApEn) WiFi.mode(WIFI_STA);
+        // Pokud AP běží, mode je už WIFI_AP_STA
         if (!gConfig.wifiStaDhcp) {
             WiFi.config(
                 IPAddress(gConfig.wifiStaIp),
