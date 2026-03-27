@@ -69,7 +69,7 @@ namespace UdPScreen {
         if (strlen(item.hint) > 0) {
             tft.setTextColor(t->dim);
             tft.setTextDatum(middle_right);
-            tft.drawString(item.hint, 310, y + 14);
+            tft.drawString(item.hint, 290, y + 14);
             tft.setTextDatum(top_left);
         }
 

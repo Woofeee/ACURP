@@ -129,6 +129,46 @@ namespace SettingScreen {
     }
 
     // ---------------------------------------------------------
+    //  Načti hodnoty z gConfig do _items[] (non-RTC položky)
+    // ---------------------------------------------------------
+    static void _loadFromConfig() {
+        snprintf(_items[ITEM_NTP].value, 16, "%s",
+            gConfig.ntpEn ? "on" : "off");
+        snprintf(_items[ITEM_THEME].value, 16, "%s",
+            gConfig.themeIndex == 0 ? "Dark" :
+            (gConfig.themeIndex == 1 ? "Industrial" : "Light"));
+        snprintf(_items[ITEM_TIMEOUT].value, 16, "%u min",
+            gConfig.displayTimeout);
+        snprintf(_items[ITEM_BACKLIGHT].value, 16, "%u %%",
+            gConfig.displayBright);
+    }
+
+    // ---------------------------------------------------------
+    //  Propaguj editovanou hodnotu do gConfig
+    // ---------------------------------------------------------
+    static void _saveItem(uint8_t idx) {
+        switch ((ItemId)idx) {
+            case ITEM_NTP:
+                gConfig.ntpEn = (strcmp(_items[idx].value, "on") == 0);
+                break;
+            case ITEM_THEME:
+                if      (strcmp(_items[idx].value, "Dark") == 0)       gConfig.themeIndex = 0;
+                else if (strcmp(_items[idx].value, "Industrial") == 0) gConfig.themeIndex = 1;
+                else                                                    gConfig.themeIndex = 2;
+                break;
+            case ITEM_TIMEOUT:
+                gConfig.displayTimeout = (uint8_t)constrain(atoi(_items[idx].value), 1, 60);
+                break;
+            case ITEM_BACKLIGHT:
+                gConfig.displayBright = (uint8_t)constrain(atoi(_items[idx].value), 10, 100);
+                break;
+            default: break;
+        }
+        Serial.printf("[SET] Uloženo: %s = %s\n",
+            _items[idx].label, _items[idx].value);
+    }
+
+    // ---------------------------------------------------------
     //  Nakresli inline editaci datumu (aktivní pole podtrženo)
     // ---------------------------------------------------------
     static void _drawDateEdit(const Theme* t, int16_t y) {
@@ -298,6 +338,7 @@ namespace SettingScreen {
               uint8_t apState, uint8_t staState, uint8_t invState,
               bool alarm, const SolarData& d) {
         _loadFromRTC();
+        _loadFromConfig();
         tft.fillScreen(t->bg);
         Header::draw(t, dt, apState, staState, invState, alarm);
         tft.fillRect(0, FTR_Y, 320, FTR_H, t->header);
@@ -481,6 +522,7 @@ namespace SettingScreen {
                     return SCREEN_NONE;
                 case SW_CENTER:
                     _editing = false;
+                    _saveItem(_cursor);
                     // Pokud se zapnulo NTP, spusť okamžitý sync
                     if (_cursor == ITEM_NTP && strcmp(_items[ITEM_NTP].value, "on") == 0) {
                         gNtpResync = true;
@@ -490,6 +532,7 @@ namespace SettingScreen {
                     return SCREEN_NONE;
                 case SW_LEFT:
                     _editing = false;
+                    _loadFromConfig();  // zahoď změny – obnov z gConfig
                     _drawItem(t, _cursor);
                     return SCREEN_NONE;
                 default:
